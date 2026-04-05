@@ -1,0 +1,25 @@
+# Entorno virtual
+venv/
+
+# Variables de entorno
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Alembic versions (opcional, puedes incluirlas)
+# alembic/versions/
+
+# IDE
+.cursor/
+.idea/
+
+# Logs
+*.log
+
+# Postman (opcional)
+# WinPredict.postman_collection.json

@@ -1,0 +1,181 @@
+{
+    "info": {
+      "name": "WinPredict API",
+      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+      {"key": "base_url", "value": "http://localhost:8000"},
+      {"key": "token", "value": ""},
+      {"key": "grupo_id", "value": ""},
+      {"key": "partido_id", "value": ""}
+    ],
+    "item": [
+      {
+        "name": "Auth",
+        "item": [
+          {
+            "name": "Registro",
+            "request": {
+              "method": "POST",
+              "url": "{{base_url}}/api/auth/registro",
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": {"mode": "raw", "raw": "{\n  \"nombre\": \"Jonathan\",\n  \"email\": \"jonathan@prueba.com\",\n  \"password\": \"abc1234\"\n}"}
+            }
+          },
+          {
+            "name": "Login",
+            "event": [{"listen": "test", "script": {"exec": ["var res = pm.response.json();", "pm.collectionVariables.set('token', res.access_token);"]}}],
+            "request": {
+              "method": "POST",
+              "url": "{{base_url}}/api/auth/login",
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": {"mode": "raw", "raw": "{\n  \"email\": \"jonathan@prueba.com\",\n  \"password\": \"abc1234\"\n}"}
+            }
+          },
+          {
+            "name": "Mi Perfil",
+            "request": {
+              "method": "GET",
+              "url": "{{base_url}}/api/auth/me",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Grupos",
+        "item": [
+          {
+            "name": "Crear Grupo",
+            "event": [{"listen": "test", "script": {"exec": ["var res = pm.response.json();", "pm.collectionVariables.set('grupo_id', res.id);"]}}],
+            "request": {
+              "method": "POST",
+              "url": "{{base_url}}/api/grupos/",
+              "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Authorization", "value": "Bearer {{token}}"}],
+              "body": {"mode": "raw", "raw": "{\n  \"nombre\": \"Grupo Mundial 2026\",\n  \"max_participantes\": 10,\n  \"descripcion\": \"Polla del Mundial\",\n  \"reglas\": {\n    \"pts_marcador_exacto\": 5,\n    \"pts_ganador\": 3,\n    \"pts_empate\": 2,\n    \"pts_gol\": 1,\n    \"pts_prediccion_unica\": 2,\n    \"bono_dieciseisavos\": 1,\n    \"bono_octavos\": 2,\n    \"bono_cuartos\": 3,\n    \"bono_semifinales\": 4,\n    \"bono_final\": 5\n  }\n}"}
+            }
+          },
+          {
+            "name": "Mis Grupos",
+            "request": {
+              "method": "GET",
+              "url": "{{base_url}}/api/grupos/mis-grupos",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          },
+          {
+            "name": "Ver Reglas",
+            "request": {
+              "method": "GET",
+              "url": "{{base_url}}/api/grupos/{{grupo_id}}/reglas",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          },
+          {
+            "name": "Actualizar Reglas",
+            "request": {
+              "method": "PUT",
+              "url": "{{base_url}}/api/grupos/{{grupo_id}}/reglas",
+              "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Authorization", "value": "Bearer {{token}}"}],
+              "body": {"mode": "raw", "raw": "{\n  \"pts_marcador_exacto\": 10,\n  \"pts_ganador\": 5,\n  \"pts_empate\": 3,\n  \"pts_gol\": 2,\n  \"pts_prediccion_unica\": 4,\n  \"bono_dieciseisavos\": 2,\n  \"bono_octavos\": 3,\n  \"bono_cuartos\": 4,\n  \"bono_semifinales\": 6,\n  \"bono_final\": 8\n}"}
+            }
+          },
+          {
+            "name": "Unirse a Grupo",
+            "request": {
+              "method": "POST",
+              "url": "{{base_url}}/api/grupos/unirse",
+              "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Authorization", "value": "Bearer {{token}}"}],
+              "body": {"mode": "raw", "raw": "{\n  \"codigo_invitacion\": \"Z1C01W\"\n}"}
+            }
+          }
+        ]
+      },
+      {
+        "name": "Partidos",
+        "item": [
+          {
+            "name": "Listar Partidos",
+            "event": [{"listen": "test", "script": {"exec": ["var res = pm.response.json();", "if(res.length > 0) pm.collectionVariables.set('partido_id', res[0].id);"]}}],
+            "request": {
+              "method": "GET",
+              "url": "{{base_url}}/api/partidos/",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          },
+          {
+            "name": "Detalle Partido",
+            "request": {
+              "method": "GET",
+              "url": "{{base_url}}/api/partidos/{{partido_id}}",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Pronósticos",
+        "item": [
+          {
+            "name": "Registrar Pronóstico",
+            "request": {
+              "method": "POST",
+              "url": "{{base_url}}/api/pronosticos/",
+              "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Authorization", "value": "Bearer {{token}}"}],
+              "body": {"mode": "raw", "raw": "{\n  \"partido_id\": \"{{partido_id}}\",\n  \"grupo_id\": \"{{grupo_id}}\",\n  \"goles_local\": 2,\n  \"goles_visitante\": 1\n}"}
+            }
+          },
+          {
+            "name": "Mis Pronósticos",
+            "request": {
+              "method": "GET",
+              "url": "{{base_url}}/api/pronosticos/mis-pronosticos/{{grupo_id}}",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          },
+          {
+            "name": "Calcular Puntos Partido",
+            "request": {
+              "method": "POST",
+              "url": "{{base_url}}/api/pronosticos/calcular/{{partido_id}}",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Ranking",
+        "item": [
+          {
+            "name": "Ranking del Grupo",
+            "request": {
+              "method": "GET",
+              "url": "{{base_url}}/api/ranking/{{grupo_id}}",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          }
+        ]
+      },
+      {
+        "name": "PRO",
+        "item": [
+          {
+            "name": "Iniciar Checkout PRO",
+            "request": {
+              "method": "POST",
+              "url": "{{base_url}}/api/pro/checkout",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          },
+          {
+            "name": "Sugerencia IA",
+            "request": {
+              "method": "GET",
+              "url": "{{base_url}}/api/pro/sugerencias/{{partido_id}}",
+              "header": [{"key": "Authorization", "value": "Bearer {{token}}"}]
+            }
+          }
+        ]
+      }
+    ]
+  }
