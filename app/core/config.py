@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
     FRONTEND_URL: str = "http://localhost:3000"
+    BACKEND_URL: str = "http://localhost:8000"    # URL pública del backend (en prod: tu dominio)
 
     # Base de datos
     DATABASE_URL: str
@@ -17,11 +18,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 días
 
-    # Stripe
-    STRIPE_SECRET_KEY: str = ""
-    STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_PRICE_ID: str = ""
-    PRO_PRICE_USD: float = 2.00
+    # MercadoPago
+    MP_ACCESS_TOKEN: str = ""
+    MP_WEBHOOK_SECRET: str = ""   # se configura en el panel de MP al registrar el webhook
+    PRO_PRICE_COP: float = 8000.0  # ~$2 USD en COP
 
     class Config:
         env_file = ".env"
