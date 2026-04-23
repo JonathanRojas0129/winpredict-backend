@@ -4,6 +4,7 @@ Correr desde: backend/
 Comando: python seed_partidos.py
 """
 import sys
+sys.stdout.reconfigure(encoding='utf-8')
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 

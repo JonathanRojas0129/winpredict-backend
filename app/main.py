@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routers import auth, grupos, partidos, pronosticos, ranking, pro
+from app.routers import auth, grupos, partidos, pronosticos, ranking, pro, sugerencias
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -39,6 +39,7 @@ app.include_router(partidos.router,     prefix="/api/partidos",    tags=["Partid
 app.include_router(pronosticos.router,  prefix="/api/pronosticos", tags=["Pronósticos"])
 app.include_router(ranking.router,      prefix="/api/ranking",     tags=["Ranking"])
 app.include_router(pro.router,          prefix="/api/pro",         tags=["PRO · Pagos"])
+app.include_router(sugerencias.router, prefix="/api/sugerencias", tags=["Sugerencias IA"])
 
 
 # ─── Health check ────────────────────────────────────────────────────────
