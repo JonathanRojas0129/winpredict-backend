@@ -190,6 +190,7 @@ async def mp_webhook(request: Request, db: Session = Depends(get_db)):
     if user and not user.es_pro:
         user.es_pro            = True
         user.pro_activado_en   = datetime.utcnow()
+        user.pro_expira_en     = datetime(2026, 7, 19, 23, 59, 59)
         user.stripe_payment_id = str(payment_id)    # guardamos el payment_id de MP
 
     # ── Marcar el pago como completado en nuestra BD ─────────────────────

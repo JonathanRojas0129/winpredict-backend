@@ -60,6 +60,7 @@ class User(Base):
     avatar_url       = Column(String(500), nullable=True)
     es_pro           = Column(Boolean, default=False, nullable=False)
     pro_activado_en  = Column(DateTime, nullable=True)
+    pro_expira_en    = Column(DateTime, nullable=True)
     stripe_payment_id = Column(String(255), nullable=True)
     proveedor_auth   = Column(Enum(ProveedorAuth), default=ProveedorAuth.local)
     creado_en        = Column(DateTime, default=datetime.utcnow)
