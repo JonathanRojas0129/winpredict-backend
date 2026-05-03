@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -167,13 +167,27 @@ def registrar_pronostico(
     ).first()
 
     if existente:
-        existente.goles_local      = data.goles_local
-        existente.goles_visitante  = data.goles_visitante
-        existente.fuente           = FuentePronostico.manual
-        existente.registrado_en    = datetime.utcnow()
-        db.commit()
-        db.refresh(existente)
-        return existente
+        # ── PRO: puede modificar hasta 5 min antes del cierre ────────────
+        if current_user.es_pro:
+            cinco_min_antes = partido.cierre_pronosticos - timedelta(minutes=5)
+            if datetime.utcnow() > cinco_min_antes:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Los usuarios PRO solo pueden modificar hasta 5 minutos antes del partido",
+                )
+            existente.goles_local     = data.goles_local
+            existente.goles_visitante = data.goles_visitante
+            existente.fuente          = FuentePronostico.manual
+            existente.registrado_en   = datetime.utcnow()
+            db.commit()
+            db.refresh(existente)
+            return existente
+
+        # ── FREE: no puede modificar un pronóstico ya registrado ─────────
+        raise HTTPException(
+            status_code=403,
+            detail="Los usuarios gratuitos no pueden modificar un pronóstico ya registrado. Activa PRO para desbloquear esta función.",
+        )
 
     pronostico = Pronostico(
         user_id=current_user.id,
