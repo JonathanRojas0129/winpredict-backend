@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # MercadoPago
     MP_ACCESS_TOKEN: str = ""
     MP_WEBHOOK_SECRET: str = ""   # se configura en el panel de MP al registrar el webhook
-    PRO_PRICE_COP: float = 8000.0  # ~$2 USD en COP
+    PRO_PRICE_COP: float = 14500.0  # ~$3.5 USD en COP
 
     class Config:
         env_file = ".env"

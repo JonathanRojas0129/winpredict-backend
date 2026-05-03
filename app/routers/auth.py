@@ -8,6 +8,7 @@ from app.core.security import (
     create_access_token, get_current_user
 )
 from app.models.models import User, ProveedorAuth
+from pydantic import BaseModel, EmailStr, Field 
 
 router = APIRouter()
 
@@ -15,9 +16,9 @@ router = APIRouter()
 # ─── Schemas ─────────────────────────────────────────────────────────────
 
 class RegisterIn(BaseModel):
-    nombre: str
+    nombre: str = Field(min_length=2, max_length=50)
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=100)
 
 class LoginIn(BaseModel):
     email: EmailStr

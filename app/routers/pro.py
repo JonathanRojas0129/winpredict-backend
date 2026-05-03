@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.models.models import User, Pago, EstadoPago, SugerenciaIA
+from uuid import UUID
 import mercadopago
 
 router = APIRouter()
@@ -46,7 +47,7 @@ def crear_checkout(
                 "description": "Predicciones con IA para toda la polla · Mundial 2026",
                 "currency_id": "COP",
                 "quantity": 1,
-                "unit_price": settings.PRO_PRICE_COP,   # ej: 8000.0 COP (~$2 USD)
+                "unit_price": settings.PRO_PRICE_COP,   # ej: 14500.0 COP (~$3.5 USD)
             }
         ],
 
@@ -144,8 +145,8 @@ async def mp_webhook(request: Request, db: Session = Depends(get_db)):
         manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
         expected = hmac.new(
             settings.MP_WEBHOOK_SECRET.encode(),
-            manifest.encode(),
-            hashlib.sha256,
+            msg=manifest.encode(),
+            digestmod=hashlib.sha256,
         ).hexdigest()
 
         if not hmac.compare_digest(expected, v1):
@@ -209,15 +210,18 @@ async def mp_webhook(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/sugerencias/{partido_id}")
 def sugerencia_partido(
-    partido_id: str,
+    partido_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Retorna la sugerencia de IA para un partido. Solo usuarios PRO."""
-    if not current_user.es_pro:
+    if not current_user.es_pro or (
+        current_user.pro_expira_en and
+        current_user.pro_expira_en < datetime.utcnow()
+    ):
         raise HTTPException(
             status_code=403,
-            detail="Las sugerencias IA son exclusivas de WinPredict PRO (~$8.000 COP)",
+        detail="WinPredict PRO ha expirado. Por favor, renueva tu suscripción.",
         )
 
     sugerencia = db.query(SugerenciaIA).filter(
