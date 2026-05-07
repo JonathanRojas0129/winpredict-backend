@@ -1,147 +1,144 @@
 """
 routers/pro.py — Pago PRO via MercadoPago (Checkout Pro · Colombia COP)
-Flujo: POST /checkout → preference MP → frontend redirige → IPN webhook → activa PRO
+Flujo: POST /checkout → preference MP → frontend redirige → webhook → activa PRO
+       GET /payment-status → fallback si el webhook no llega
 """
 import hmac
 import hashlib
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
+import mercadopago
+
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.config import settings
-from app.models.models import User, Pago, EstadoPago, SugerenciaIA
-from uuid import UUID
-import mercadopago
+from app.models.models import User, Pago, EstadoPago
 
 router = APIRouter()
 
-# ─── Cliente MercadoPago ─────────────────────────────────────────────────
+# ─── Cliente MercadoPago ──────────────────────────────────────────────────
 sdk = mercadopago.SDK(settings.MP_ACCESS_TOKEN)
 
 
-# ─── Checkout ────────────────────────────────────────────────────────────
+# ─── POST /checkout ───────────────────────────────────────────────────────
 
 @router.post("/checkout")
 def crear_checkout(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Crea una preferencia de pago en MercadoPago para activar WinPredict PRO.
-    Devuelve la URL de Checkout Pro para redirigir al usuario.
-    """
+    """Crea la preferencia de pago en MP (13,100 COP)."""
     if current_user.es_pro:
-        raise HTTPException(
-            status_code=400,
-            detail="Ya tienes WinPredict PRO activo",
-        )
+        raise HTTPException(status_code=400, detail="Ya eres usuario PRO")
 
-    # ── Construir la preferencia ─────────────────────────────────────────
-    # Adaptado de la referencia oficial de MP para Colombia (COP)
     preference_data = {
-        # Producto que se está comprando
         "items": [
             {
-                "title": "WinPredict PRO",
-                "description": "Predicciones con IA para toda la polla · Mundial 2026",
+                "title":       "WinPredict PRO",
+                "description": "Acceso a sugerencias IA y edición de pronósticos",
                 "currency_id": "COP",
-                "quantity": 1,
-                "unit_price": settings.PRO_PRICE_COP,   # ej: 14500.0 COP (~$3.5 USD)
+                "quantity":    1,
+                "unit_price":  settings.PRO_PRICE_COP,
             }
         ],
-
-        # Datos del comprador — usamos el usuario autenticado
-        "payer": {
-            "name":  current_user.nombre,
-            "email": current_user.email,
-        },
-
-        # URLs de retorno después del pago
+        "payer": {"email": current_user.email},
         "back_urls": {
             "success": f"{settings.FRONTEND_URL}/pro/success",
             "failure": f"{settings.FRONTEND_URL}/pro?error=1",
             "pending": f"{settings.FRONTEND_URL}/pro?pending=1",
         },
-
-        # Redirige automáticamente si el pago es aprobado
-        "auto_return": "approved",
-
-        # Referencia externa: guardamos el user_id para identificarlo en el webhook
-        "external_reference": str(current_user.id),
-
-        # URL donde MP envía la notificación IPN cuando cambia el estado del pago
-        "notification_url": f"{settings.BACKEND_URL}/api/pro/webhook",
-
-        # Nombre que aparece en el resumen del extracto bancario del comprador
+        "auto_return":          "approved",
+        "external_reference":   str(current_user.id),
+        "notification_url":     f"{settings.BACKEND_URL}/api/pro/webhook",
         "statement_descriptor": "WINPREDICT",
-
-        # Métodos de pago — aceptamos todo lo disponible en Colombia
-        "payment_methods": {
-            "installments": 1,   # pago en una sola cuota (no cuotas)
-        },
+        "payment_methods":      {"installments": 1},
     }
 
-    # ── Crear la preferencia en MP ───────────────────────────────────────
-    preference_response = sdk.preference().create(preference_data)
-    preference = preference_response["response"]
+    pref_response = sdk.preference().create(preference_data)
+    preference    = pref_response["response"]
 
-    if preference_response["status"] not in (200, 201):
-        raise HTTPException(
-            status_code=502,
-            detail=f"Error al crear preferencia en MercadoPago: {preference}",
-        )
+    if pref_response["status"] not in (200, 201):
+        raise HTTPException(status_code=502, detail=f"Error con MercadoPago: {preference}")
 
-    preference_id = preference["id"]
-
-    # En desarrollo usar sandbox_init_point, en producción init_point
-    checkout_url = (
-        preference["sandbox_init_point"]
-        if settings.DEBUG
-        else preference["init_point"]
+    nuevo_pago = Pago(
+        user_id=       current_user.id,
+        preference_id= preference["id"],
+        monto_cop=     settings.PRO_PRICE_COP,
+        estado=        EstadoPago.pending,
     )
-
-    # ── Registrar pago pendiente en nuestra BD ───────────────────────────
-    pago = Pago(
-        user_id=current_user.id,
-        stripe_session_id=preference_id,   # campo reutilizado para guardar el preference_id de MP
-        monto_usd=settings.PRO_PRICE_COP,
-        estado=EstadoPago.pending,
-    )
-    db.add(pago)
+    db.add(nuevo_pago)
     db.commit()
 
     return {
-        "checkout_url":  checkout_url,
-        "preference_id": preference_id,
+        "checkout_url":  preference["sandbox_init_point"] if settings.DEBUG else preference["init_point"],
+        "preference_id": preference["id"],
     }
 
 
-# ─── Webhook / IPN MercadoPago ───────────────────────────────────────────
+# ─── GET /payment-status — Fallback del webhook ───────────────────────────
+
+@router.get("/payment-status")
+def verificar_pago(
+    payment_id: str = Query(..., description="payment_id que MP adjunta en el redirect de success"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fallback: verifica el pago directamente en MP si el webhook no llegó."""
+    if current_user.es_pro:
+        return {"status": "approved", "ya_era_pro": True, "message": "Tu cuenta PRO ya está activa"}
+
+    payment_response = sdk.payment().get(payment_id)
+    if payment_response["status"] != 200:
+        raise HTTPException(status_code=502, detail="No se pudo consultar el pago en MercadoPago.")
+
+    payment       = payment_response["response"]
+    status_pago   = payment.get("status")
+    preference_id = payment.get("preference_id")
+    external_ref  = payment.get("external_reference")
+
+    if external_ref != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Este pago no corresponde a tu cuenta.")
+
+    if status_pago == "approved":
+        if not current_user.es_pro:
+            current_user.es_pro            = True
+            current_user.pro_activado_en   = datetime.utcnow()
+            current_user.pro_expira_en     = datetime(2026, 7, 19, 23, 59, 59)
+            current_user.stripe_payment_id = str(payment_id)
+
+        pago = db.query(Pago).filter(Pago.preference_id == preference_id).first()
+        if pago and pago.estado != EstadoPago.completado:
+            pago.estado    = EstadoPago.completado
+            pago.pagado_en = datetime.utcnow()
+
+        db.commit()
+        return {"status": "approved", "ya_era_pro": False, "message": "¡Pago aprobado! Tu cuenta PRO ha sido activada."}
+
+    elif status_pago == "pending":
+        return {"status": "pending", "message": "Tu pago está en proceso."}
+
+    else:
+        return {"status": status_pago, "message": "El pago fue rechazado o cancelado."}
+
+
+# ─── POST /webhook — Notificación IPN de MercadoPago ─────────────────────
 
 @router.post("/webhook")
 async def mp_webhook(request: Request, db: Session = Depends(get_db)):
-    """
-    MercadoPago llama a este endpoint cuando hay un cambio en el estado del pago.
-    Verifica la notificación, consulta el pago en la API de MP y activa el PRO
-    si el pago fue aprobado.
-    """
-    # ── Verificar firma HMAC (si MP_WEBHOOK_SECRET está configurado) ─────
-    if settings.MP_WEBHOOK_SECRET:
+    """Recibe la notificación IPN de MP y activa el PRO si el pago fue aprobado."""
+
+    if hasattr(settings, "MP_WEBHOOK_SECRET") and settings.MP_WEBHOOK_SECRET:
         x_signature  = request.headers.get("x-signature", "")
         x_request_id = request.headers.get("x-request-id", "")
         data_id      = request.query_params.get("data.id", "")
 
-        ts = ""
-        v1 = ""
+        ts = v1 = ""
         for part in x_signature.split(","):
             part = part.strip()
-            if part.startswith("ts="):
-                ts = part[3:]
-            elif part.startswith("v1="):
-                v1 = part[3:]
+            if part.startswith("ts="):  ts = part[3:]
+            elif part.startswith("v1="): v1 = part[3:]
 
-        # El manifest que MP firma es: "id:{data_id};request-id:{x_request_id};ts:{ts};"
         manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
         expected = hmac.new(
             settings.MP_WEBHOOK_SECRET.encode(),
@@ -152,88 +149,42 @@ async def mp_webhook(request: Request, db: Session = Depends(get_db)):
         if not hmac.compare_digest(expected, v1):
             raise HTTPException(status_code=400, detail="Firma de webhook inválida")
 
-    # ── Leer el body de la notificación ─────────────────────────────────
     try:
         body = await request.json()
     except Exception:
         return {"status": "ignored"}
 
-    # MP puede enviar notificaciones de distintos tipos (payment, merchant_order, etc.)
     tipo = body.get("type") or body.get("topic")
-
     if tipo != "payment":
         return {"status": "ignored"}
 
-    payment_id = (
-        body.get("data", {}).get("id")
-        or body.get("id")
-    )
+    payment_id = body.get("data", {}).get("id") or body.get("id")
     if not payment_id:
         return {"status": "ignored"}
 
-    # ── Consultar el pago real en la API de MP ───────────────────────────
     payment_response = sdk.payment().get(payment_id)
-
     if payment_response["status"] != 200:
         return {"status": "error", "detail": "No se pudo consultar el pago en MP"}
 
     payment       = payment_response["response"]
-    status_pago   = payment.get("status")           # approved | pending | rejected | cancelled
+    status_pago   = payment.get("status")
     preference_id = payment.get("preference_id")
-    user_id       = payment.get("external_reference")  # lo pusimos nosotros al crear la preference
+    user_id       = payment.get("external_reference")
 
-    # Solo procesamos pagos aprobados
     if status_pago != "approved" or not user_id:
         return {"status": "not_approved"}
 
-    # ── Activar PRO en el usuario ────────────────────────────────────────
     user = db.query(User).filter(User.id == user_id).first()
     if user and not user.es_pro:
         user.es_pro            = True
         user.pro_activado_en   = datetime.utcnow()
         user.pro_expira_en     = datetime(2026, 7, 19, 23, 59, 59)
-        user.stripe_payment_id = str(payment_id)    # guardamos el payment_id de MP
+        user.stripe_payment_id = str(payment_id)
 
-    # ── Marcar el pago como completado en nuestra BD ─────────────────────
-    pago = db.query(Pago).filter(
-        Pago.stripe_session_id == preference_id
-    ).first()
+    pago = db.query(Pago).filter(Pago.preference_id == preference_id).first()
     if pago:
         pago.estado    = EstadoPago.completado
         pago.pagado_en = datetime.utcnow()
 
     db.commit()
     return {"status": "ok"}
-
-
-# ─── Sugerencias IA (solo PRO) ───────────────────────────────────────────
-
-@router.get("/sugerencias/{partido_id}")
-def sugerencia_partido(
-    partido_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Retorna la sugerencia de IA para un partido. Solo usuarios PRO."""
-    if not current_user.es_pro or (
-        current_user.pro_expira_en and
-        current_user.pro_expira_en < datetime.utcnow()
-    ):
-        raise HTTPException(
-            status_code=403,
-        detail="WinPredict PRO ha expirado. Por favor, renueva tu suscripción.",
-        )
-
-    sugerencia = db.query(SugerenciaIA).filter(
-        SugerenciaIA.partido_id == partido_id
-    ).first()
-    if not sugerencia:
-        raise HTTPException(status_code=404, detail="Sugerencia no disponible aún")
-
-    return {
-        "partido_id":      partido_id,
-        "goles_local":     sugerencia.goles_local,
-        "goles_visitante": sugerencia.goles_visitante,
-        "confianza":       round(sugerencia.confianza * 100),   # como porcentaje
-        "generado_en":     sugerencia.generado_en,
-    }

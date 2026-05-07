@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer()
 
 
@@ -19,8 +19,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    plain = plain[:72]
-    return pwd_context.verify(plain, hashed)
+    try:
+        plain = plain[:72]
+        return pwd_context.verify(plain, hashed)
+    except Exception:
+        return False
 
 
 # ─── JWT ────────────────────────────────────────────────────────────────

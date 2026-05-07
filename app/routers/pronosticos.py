@@ -1,70 +1,38 @@
 import uuid
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.models import (
     Pronostico, Partido, Grupo, GrupoParticipante,
-    User, FuentePronostico, FasePartido
+    User, FuentePronostico,
 )
+from app.schemas.pronosticos import PronosticoIn, PronosticoOut
 
 router = APIRouter()
-
-
-# ─── Schemas ─────────────────────────────────────────────────────────────
-
-class PronosticoIn(BaseModel):
-    partido_id:      uuid.UUID
-    grupo_id:        uuid.UUID
-    goles_local:     int
-    goles_visitante: int
-
-
-class PronosticoOut(BaseModel):
-    id:                uuid.UUID
-    partido_id:        uuid.UUID
-    grupo_id:          uuid.UUID
-    goles_local:       int
-    goles_visitante:   int
-    puntos_obtenidos:  int | None
-    fuente:            str
-    fue_autocompletado: bool
-    registrado_en:     datetime
-
-    class Config:
-        from_attributes = True
-
 
 # ─── Lógica de puntuación dinámica ───────────────────────────────────────
 
 def calcular_puntos(
-    pred_local:     int,
+    pred_local: int,
     pred_visitante: int,
-    real_local:     int,
+    real_local: int,
     real_visitante: int,
-    fase:           str,
-    grupo:          Grupo,
-    clasificado_local: bool | None = None,
+    fase: str,
+    grupo: Grupo,
     es_prediccion_unica: bool = False,
 ) -> dict:
-    """
-    Calcula los puntos usando las reglas configuradas por el admin del grupo.
-    Retorna el total y el detalle del desglose.
-    """
-    puntos      = 0
-    desglose    = {}
+    puntos = 0
+    desglose = {}
 
-    # ── Marcador exacto ──────────────────────────────────────────────────
+    # Marcador exacto
     if pred_local == real_local and pred_visitante == real_visitante:
         puntos += grupo.pts_marcador_exacto
         desglose["marcador_exacto"] = grupo.pts_marcador_exacto
-
-        # Goles acertados (aplica solo si NO hay marcador exacto para no duplicar)
-        # en este caso no sumamos goles por separado, ya el exacto los incluye
     else:
-        # ── Ganador acertado ─────────────────────────────────────────────
+        # Ganador / Empate
         local_gana_pred  = pred_local > pred_visitante
         local_gana_real  = real_local > real_visitante
         visita_gana_pred = pred_local < pred_visitante
@@ -73,44 +41,36 @@ def calcular_puntos(
         if (local_gana_pred and local_gana_real) or (visita_gana_pred and visita_gana_real):
             puntos += grupo.pts_ganador
             desglose["ganador_acertado"] = grupo.pts_ganador
-
-        # ── Empate acertado ──────────────────────────────────────────────
         elif pred_local == pred_visitante and real_local == real_visitante:
             puntos += grupo.pts_empate
             desglose["empate_acertado"] = grupo.pts_empate
 
-        # ── Goles acertados (por cada gol que coincide) ──────────────────
+        # Goles acertados individualmente
         if grupo.pts_gol > 0:
-            goles_coinciden = 0
-            if pred_local == real_local:
-                goles_coinciden += 1
-            if pred_visitante == real_visitante:
-                goles_coinciden += 1
-            if goles_coinciden > 0:
-                bonus_goles = goles_coinciden * grupo.pts_gol
+            bonus_goles = 0
+            if pred_local     == real_local:     bonus_goles += grupo.pts_gol
+            if pred_visitante == real_visitante: bonus_goles += grupo.pts_gol
+            if bonus_goles > 0:
                 puntos += bonus_goles
                 desglose["goles_acertados"] = bonus_goles
 
-    # ── Predicción única ─────────────────────────────────────────────────
+    # Predicción única
     if es_prediccion_unica and grupo.pts_prediccion_unica > 0:
         puntos += grupo.pts_prediccion_unica
         desglose["prediccion_unica"] = grupo.pts_prediccion_unica
 
-    # ── Bonos por fase eliminatoria ──────────────────────────────────────
+    # Bonos por fase eliminatoria
     bonos_por_fase = {
-        FasePartido.dieciseisavos: grupo.bono_dieciseisavos,
-        FasePartido.octavos:       grupo.bono_octavos,
-        FasePartido.cuartos:       grupo.bono_cuartos,
-        FasePartido.semifinal:     grupo.bono_semifinales,
-        FasePartido.final:         grupo.bono_final,
+        "dieciseisavos": grupo.bono_dieciseisavos,
+        "octavos":       grupo.bono_octavos,
+        "cuartos":       grupo.bono_cuartos,
+        "semifinales":   grupo.bono_semifinales,
+        "final":         grupo.bono_final,
     }
-
     bono_fase = bonos_por_fase.get(fase, 0)
-    if bono_fase > 0 and clasificado_local is not None:
-        pred_clasifica_local = pred_local >= pred_visitante
-        if pred_clasifica_local == clasificado_local:
-            puntos += bono_fase
-            desglose[f"bono_{fase}"] = bono_fase
+    if bono_fase > 0 and puntos > 0:   # solo aplica bono si acertó algo
+        puntos += bono_fase
+        desglose[f"bono_{fase}"] = bono_fase
 
     return {"total": puntos, "desglose": desglose}
 
@@ -123,18 +83,17 @@ def verificar_prediccion_unica(
     goles_visitante: int,
     excluir_user_id: uuid.UUID,
 ) -> bool:
-    """Verifica si este marcador es único en el grupo (nadie más lo pronosticó)."""
     otros = db.query(Pronostico).filter(
-        Pronostico.partido_id == partido_id,
-        Pronostico.grupo_id   == grupo_id,
-        Pronostico.user_id    != excluir_user_id,
-        Pronostico.goles_local     == goles_local,
+        Pronostico.partido_id    == partido_id,
+        Pronostico.grupo_id      == grupo_id,
+        Pronostico.user_id       != excluir_user_id,
+        Pronostico.goles_local   == goles_local,
         Pronostico.goles_visitante == goles_visitante,
     ).count()
     return otros == 0
 
 
-# ─── Endpoints ───────────────────────────────────────────────────────────
+# ─── POST / — Registrar o actualizar pronóstico ───────────────────────────
 
 @router.post("/", response_model=PronosticoOut, status_code=201)
 def registrar_pronostico(
@@ -142,17 +101,34 @@ def registrar_pronostico(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Registrar o actualizar el pronóstico de un partido en un grupo."""
+    # ── 1. Obtener el partido ────────────────────────────────────────
     partido = db.query(Partido).filter(Partido.id == data.partido_id).first()
     if not partido:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
 
-    if datetime.utcnow() >= partido.cierre_pronosticos:
+    # ── 2. Verificar cierre de pronósticos ──────────────────────────
+    ahora_utc = datetime.now(timezone.utc)
+
+    # Asegurar que fecha_hora tenga timezone (puede venir naive de la BD)
+    fecha_partido = partido.fecha_hora
+    if fecha_partido.tzinfo is None:
+        fecha_partido = fecha_partido.replace(tzinfo=timezone.utc)
+
+    limite_free = fecha_partido - timedelta(minutes=15)
+    limite_pro  = fecha_partido - timedelta(minutes=5)
+
+    if not current_user.es_pro and ahora_utc >= limite_free:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El tiempo para registrar pronósticos ha cerrado",
+            status_code=403,
+            detail="Debes registrar tu pronóstico al menos 15 minutos antes del partido.",
+        )
+    if current_user.es_pro and ahora_utc >= limite_pro:
+        raise HTTPException(
+            status_code=403,
+            detail="El tiempo límite PRO (5 minutos antes) ha expirado.",
         )
 
+    # ── 3. Verificar participación en el grupo ───────────────────────
     participante = db.query(GrupoParticipante).filter(
         GrupoParticipante.grupo_id == data.grupo_id,
         GrupoParticipante.user_id  == current_user.id,
@@ -160,6 +136,7 @@ def registrar_pronostico(
     if not participante:
         raise HTTPException(status_code=403, detail="No eres parte de este grupo")
 
+    # ── 4. Actualizar si ya existe ───────────────────────────────────
     existente = db.query(Pronostico).filter(
         Pronostico.user_id    == current_user.id,
         Pronostico.partido_id == data.partido_id,
@@ -167,108 +144,35 @@ def registrar_pronostico(
     ).first()
 
     if existente:
-        # ── PRO: puede modificar hasta 5 min antes del cierre ────────────
         if current_user.es_pro:
-            cinco_min_antes = partido.cierre_pronosticos - timedelta(minutes=5)
-            if datetime.utcnow() > cinco_min_antes:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Los usuarios PRO solo pueden modificar hasta 5 minutos antes del partido",
-                )
             existente.goles_local     = data.goles_local
             existente.goles_visitante = data.goles_visitante
-            existente.fuente          = FuentePronostico.manual
-            existente.registrado_en   = datetime.utcnow()
+            existente.registrado_en   = ahora_utc
             db.commit()
             db.refresh(existente)
             return existente
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail="Ya registraste un pronóstico. Solo los usuarios PRO pueden editarlo.",
+            )
 
-        # ── FREE: no puede modificar un pronóstico ya registrado ─────────
-        raise HTTPException(
-            status_code=403,
-            detail="Los usuarios gratuitos no pueden modificar un pronóstico ya registrado. Activa PRO para desbloquear esta función.",
-        )
-
-    pronostico = Pronostico(
-        user_id=current_user.id,
-        partido_id=data.partido_id,
-        grupo_id=data.grupo_id,
-        goles_local=data.goles_local,
-        goles_visitante=data.goles_visitante,
-        fuente=FuentePronostico.manual,
+    # ── 5. Crear nuevo pronóstico ────────────────────────────────────
+    nuevo = Pronostico(
+        user_id=          current_user.id,
+        partido_id=       data.partido_id,
+        grupo_id=         data.grupo_id,
+        goles_local=      data.goles_local,
+        goles_visitante=  data.goles_visitante,
+        fuente=           FuentePronostico.usuario,
     )
-    db.add(pronostico)
+    db.add(nuevo)
     db.commit()
-    db.refresh(pronostico)
-    return pronostico
+    db.refresh(nuevo)
+    return nuevo
 
 
-@router.post("/calcular/{partido_id}")
-def calcular_puntos_partido(
-    partido_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
-    """
-    Calcula y guarda los puntos de todos los pronósticos de un partido.
-    Llamar cuando el partido termina y se registra el resultado oficial.
-    """
-    partido = db.query(Partido).filter(Partido.id == partido_id).first()
-    if not partido:
-        raise HTTPException(status_code=404, detail="Partido no encontrado")
-    if partido.goles_local is None or partido.goles_visitante is None:
-        raise HTTPException(status_code=400, detail="El partido aún no tiene resultado")
-
-    pronosticos = db.query(Pronostico).filter(
-        Pronostico.partido_id == partido_id
-    ).all()
-
-    actualizados = 0
-    for p in pronosticos:
-        grupo = db.query(Grupo).filter(Grupo.id == p.grupo_id).first()
-
-        # ¿Es predicción única en su grupo?
-        es_unica = verificar_prediccion_unica(
-            db, partido_id, p.grupo_id,
-            p.goles_local, p.goles_visitante, p.user_id,
-        ) and (p.goles_local == partido.goles_local and
-               p.goles_visitante == partido.goles_visitante)
-
-        resultado = calcular_puntos(
-            pred_local=p.goles_local,
-            pred_visitante=p.goles_visitante,
-            real_local=partido.goles_local,
-            real_visitante=partido.goles_visitante,
-            fase=partido.fase,
-            grupo=grupo,
-            clasificado_local=partido.clasificado_local,
-            es_prediccion_unica=es_unica,
-        )
-
-        p.puntos_obtenidos = resultado["total"]
-
-        # Actualizar puntos acumulados en grupo_participantes
-        participante = db.query(GrupoParticipante).filter(
-            GrupoParticipante.grupo_id == p.grupo_id,
-            GrupoParticipante.user_id  == p.user_id,
-        ).first()
-        if participante:
-            participante.total_puntos += resultado["total"]
-
-        actualizados += 1
-
-    # Recalcular posiciones en cada grupo afectado
-    grupos_afectados = {p.grupo_id for p in pronosticos}
-    for gid in grupos_afectados:
-        participantes = db.query(GrupoParticipante).filter(
-            GrupoParticipante.grupo_id == gid
-        ).order_by(GrupoParticipante.total_puntos.desc()).all()
-        for i, part in enumerate(participantes, start=1):
-            part.posicion = i
-
-    db.commit()
-    return {"partido_id": str(partido_id), "pronosticos_actualizados": actualizados}
-
+# ─── GET /mis-pronosticos/{grupo_id} ─────────────────────────────────────
 
 @router.get("/mis-pronosticos/{grupo_id}")
 def mis_pronosticos(
@@ -276,9 +180,90 @@ def mis_pronosticos(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Listar todos los pronósticos del usuario en un grupo con su desglose."""
     pronosticos = db.query(Pronostico).filter(
         Pronostico.user_id  == current_user.id,
         Pronostico.grupo_id == grupo_id,
     ).all()
     return pronosticos
+
+
+# ─── GET /mis-pronosticos-global ─────────────────────────────────────────
+
+@router.get("/mis-pronosticos-global")
+def mis_pronosticos_global(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    pronosticos = db.query(Pronostico).filter(
+        Pronostico.user_id == current_user.id,
+    ).all()
+
+    total     = len(pronosticos)
+    exactos   = sum(
+        1 for p in pronosticos
+        if p.puntos_obtenidos is not None and p.puntos_obtenidos >= 5
+    )
+    correctos = sum(
+        1 for p in pronosticos
+        if p.puntos_obtenidos is not None and p.puntos_obtenidos > 0
+    )
+
+    return {"total": total, "exactos": exactos, "correctos": correctos}
+
+
+# ─── POST /calcular-puntos/{partido_id} ──────────────────────────────────
+# Llamado por score_updater.py tras actualizar el resultado en Supabase
+
+@router.post("/calcular-puntos/{partido_id}")
+def calcular_puntos_partido(
+    partido_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Calcula y asigna puntos a todos los pronósticos de un partido finalizado.
+    No requiere autenticación — es un endpoint interno llamado por el score_updater.
+    """
+    partido = db.query(Partido).filter(Partido.id == partido_id).first()
+    if not partido:
+        raise HTTPException(status_code=404, detail="Partido no encontrado")
+    if partido.goles_local is None or partido.goles_visitante is None:
+        raise HTTPException(status_code=400, detail="Partido sin resultado oficial aún")
+
+    pronosticos = db.query(Pronostico).filter(
+        Pronostico.partido_id == partido_id
+    ).all()
+
+    procesados = 0
+    for p in pronosticos:
+        grupo = db.query(Grupo).filter(Grupo.id == p.grupo_id).first()
+        if not grupo:
+            continue
+
+        es_unica = (
+            p.goles_local     == partido.goles_local and
+            p.goles_visitante == partido.goles_visitante and
+            verificar_prediccion_unica(
+                db, partido_id, p.grupo_id,
+                p.goles_local, p.goles_visitante, p.user_id,
+            )
+        )
+
+        res = calcular_puntos(
+            p.goles_local, p.goles_visitante,
+            partido.goles_local, partido.goles_visitante,
+            partido.fase, grupo, es_unica,
+        )
+        p.puntos_obtenidos = res["total"]
+
+        # Sumar al total del participante en el grupo
+        participante = db.query(GrupoParticipante).filter(
+            GrupoParticipante.grupo_id == p.grupo_id,
+            GrupoParticipante.user_id  == p.user_id,
+        ).first()
+        if participante:
+            participante.total_puntos = (participante.total_puntos or 0) + res["total"]
+
+        procesados += 1
+
+    db.commit()
+    return {"status": "success", "procesados": procesados}

@@ -1,44 +1,20 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
 from app.core.database import get_db
 from app.core.security import (
     hash_password, verify_password,
     create_access_token, get_current_user
 )
 from app.models.models import User, ProveedorAuth
-from pydantic import BaseModel, EmailStr, Field 
+
+# Importamos los schemas desde la nueva ubicación
+from app.schemas.auth import RegisterIn, LoginIn, TokenOut, UserOut
 
 router = APIRouter()
 
-
-# ─── Schemas ─────────────────────────────────────────────────────────────
-
-class RegisterIn(BaseModel):
-    nombre: str = Field(min_length=2, max_length=50)
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=100)
-
-class LoginIn(BaseModel):
-    email: EmailStr
-    password: str
-
-class UserOut(BaseModel):
-    id: uuid.UUID
-    email: str
-    nombre: str
-    es_pro: bool
-    avatar_url: str | None
-
-    class Config:
-        from_attributes = True
-
-class TokenOut(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserOut
-
+# NOTA: Se eliminaron las clases RegisterIn, LoginIn, UserOut y TokenOut 
+# de aquí porque ya viven en app/schemas/auth.py
 
 # ─── Endpoints ───────────────────────────────────────────────────────────
 
@@ -61,7 +37,13 @@ def registro(data: RegisterIn, db: Session = Depends(get_db)):
     db.refresh(user)
 
     token = create_access_token({"sub": str(user.id)})
-    return TokenOut(access_token=token, user=UserOut.from_orm(user))
+    
+    # Usamos from_attributes (o from_orm si usas Pydantic v1) 
+    # para convertir el modelo de SQLAlchemy al esquema de respuesta
+    return TokenOut(
+        access_token=token, 
+        user=UserOut.model_validate(user)
+    )
 
 
 @router.post("/login", response_model=TokenOut)
@@ -74,7 +56,10 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
             detail="Credenciales incorrectas",
         )
     token = create_access_token({"sub": str(user.id)})
-    return TokenOut(access_token=token, user=UserOut.from_orm(user))
+    return TokenOut(
+        access_token=token, 
+        user=UserOut.model_validate(user)
+    )
 
 
 @router.get("/me", response_model=UserOut)
