@@ -1,5 +1,0 @@
-# ─── Score Updater ──────────────────────────────────────────────────────
-SUPABASE_URL=https://inctqpxyrjwyoktumpfs.supabase.co
-SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImluY3RxcHh5cmp3eW9rdHVtcGZzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTM2MTA5NSwiZXhwIjoyMDkwOTM3MDk1fQ.9fju14KLkVi6Fy5cyyj3ZJ-xKYmTgaTQko-GN8W6dfg
-HEADLESS=true
-LOG_LEVEL=INFO
