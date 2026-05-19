@@ -62,10 +62,12 @@ def crear_checkout(
         raise HTTPException(status_code=502, detail=f"Error con MercadoPago: {preference}")
 
     nuevo_pago = Pago(
-        user_id=       current_user.id,
-        preference_id= preference["id"],
-        monto_cop=     settings.PRO_PRICE_COP,
-        estado=        EstadoPago.pending,
+        user_id=           current_user.id,
+        preference_id=     preference["id"],
+        stripe_session_id= None,
+        monto_cop=         settings.PRO_PRICE_COP,
+        monto_usd=         settings.PRO_PRICE_USD,
+        estado=            EstadoPago.pending,
     )
     db.add(nuevo_pago)
     db.commit()
