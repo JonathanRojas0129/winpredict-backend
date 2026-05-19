@@ -42,7 +42,6 @@ def crear_checkout(
                 "unit_price":  settings.PRO_PRICE_COP,
             }
         ],
-        "payer": {"email": current_user.email},
         "back_urls": {
             "success": f"{settings.FRONTEND_URL}/pro/success",
             "failure": f"{settings.FRONTEND_URL}/pro?error=1",
@@ -54,6 +53,9 @@ def crear_checkout(
         "statement_descriptor": "WINPREDICT",
         "payment_methods":      {"installments": 1},
     }
+    # En sandbox no fijar email del pagador: WinPredict usa email real y choca con TESTUSER de MP.
+    if not settings.DEBUG:
+        preference_data["payer"] = {"email": current_user.email}
 
     pref_response = sdk.preference().create(preference_data)
     preference    = pref_response["response"]
