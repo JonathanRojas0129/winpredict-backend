@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.models import GrupoParticipante, User, Grupo
+from app.models.models import GrupoParticipante, User
 
 router = APIRouter()
 
@@ -16,6 +16,17 @@ def ranking_grupo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    miembro = (
+        db.query(GrupoParticipante)
+        .filter(
+            GrupoParticipante.grupo_id == grupo_id,
+            GrupoParticipante.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not miembro:
+        raise HTTPException(status_code=403, detail="No eres miembro de este grupo")
+
     participantes = (
         db.query(GrupoParticipante, User)
         .join(User, User.id == GrupoParticipante.user_id)

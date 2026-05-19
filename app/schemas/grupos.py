@@ -17,7 +17,7 @@ class ReglasIn(BaseModel):
 
 class GrupoIn(BaseModel):
     nombre:            str
-    max_participantes: int = 50
+    max_participantes: int = 500
     premio_valor:      Optional[float] = None
     premio_moneda:     Optional[str]  = None
     descripcion:       Optional[str]  = None

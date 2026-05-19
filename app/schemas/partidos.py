@@ -11,6 +11,7 @@ class PartidoOut(BaseModel):
     bandera_visitante: Optional[str]
     fecha_hora: datetime
     fase: str
+    grupo: Optional[str] = None  
     goles_local: Optional[int]
     goles_visitante: Optional[int]
     estado: str

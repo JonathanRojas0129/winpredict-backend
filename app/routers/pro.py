@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 import mercadopago
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, tiene_pro_vigente
 from app.core.config import settings
 from app.models.models import User, Pago, EstadoPago
 
@@ -29,7 +29,7 @@ def crear_checkout(
     current_user: User = Depends(get_current_user),
 ):
     """Crea la preferencia de pago en MP (13,100 COP)."""
-    if current_user.es_pro:
+    if tiene_pro_vigente(current_user):
         raise HTTPException(status_code=400, detail="Ya eres usuario PRO")
 
     preference_data = {
@@ -85,7 +85,7 @@ def verificar_pago(
     current_user: User = Depends(get_current_user),
 ):
     """Fallback: verifica el pago directamente en MP si el webhook no llegó."""
-    if current_user.es_pro:
+    if tiene_pro_vigente(current_user):
         return {"status": "approved", "ya_era_pro": True, "message": "Tu cuenta PRO ya está activa"}
 
     payment_response = sdk.payment().get(payment_id)
@@ -101,7 +101,7 @@ def verificar_pago(
         raise HTTPException(status_code=403, detail="Este pago no corresponde a tu cuenta.")
 
     if status_pago == "approved":
-        if not current_user.es_pro:
+        if not tiene_pro_vigente(current_user):
             current_user.es_pro            = True
             current_user.pro_activado_en   = datetime.utcnow()
             current_user.pro_expira_en     = datetime(2026, 7, 19, 23, 59, 59)
@@ -128,7 +128,13 @@ def verificar_pago(
 async def mp_webhook(request: Request, db: Session = Depends(get_db)):
     """Recibe la notificación IPN de MP y activa el PRO si el pago fue aprobado."""
 
-    if hasattr(settings, "MP_WEBHOOK_SECRET") and settings.MP_WEBHOOK_SECRET:
+    if not settings.MP_WEBHOOK_SECRET and not settings.DEBUG:
+        raise HTTPException(
+            status_code=503,
+            detail="MP_WEBHOOK_SECRET debe estar configurado para aceptar webhooks en producción.",
+        )
+
+    if settings.MP_WEBHOOK_SECRET:
         x_signature  = request.headers.get("x-signature", "")
         x_request_id = request.headers.get("x-request-id", "")
         data_id      = request.query_params.get("data.id", "")
@@ -175,7 +181,7 @@ async def mp_webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "not_approved"}
 
     user = db.query(User).filter(User.id == user_id).first()
-    if user and not user.es_pro:
+    if user and not tiene_pro_vigente(user):
         user.es_pro            = True
         user.pro_activado_en   = datetime.utcnow()
         user.pro_expira_en     = datetime(2026, 7, 19, 23, 59, 59)

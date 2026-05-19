@@ -199,7 +199,42 @@ def mis_grupos(
 
     return resultado
 
+# ─── GET /preview/{codigo} — Vista previa sin unirse ─────────────────────
 
+@router.get("/preview/{codigo}")
+def preview_grupo(
+    codigo: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    grupo = db.query(Grupo).filter(
+        Grupo.codigo_invitacion == codigo.upper()
+    ).first()
+    if not grupo:
+        raise HTTPException(status_code=404, detail="Código de invitación inválido")
+
+    # Verificar si ya es miembro
+    ya_miembro = db.query(GrupoParticipante).filter(
+        GrupoParticipante.grupo_id == grupo.id,
+        GrupoParticipante.user_id  == current_user.id,
+    ).first()
+    if ya_miembro:
+        raise HTTPException(status_code=400, detail="Ya eres miembro de este grupo")
+
+    total = db.query(GrupoParticipante).filter(
+        GrupoParticipante.grupo_id == grupo.id
+    ).count()
+
+    return {
+        "nombre":               grupo.nombre,
+        "descripcion":          grupo.descripcion,
+        "total_participantes":  total,
+        "max_participantes":    grupo.max_participantes,
+        "premio_valor":         grupo.premio_valor,
+        "premio_moneda":        grupo.premio_moneda,
+        "estado":               grupo.estado or "activo",
+    }
+    
 # ─── GET /{grupo_id} — Detalle de un grupo ───────────────────────────────
 
 @router.get("/{grupo_id}")

@@ -1,10 +1,11 @@
 import uuid
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_internal_api_key, tiene_pro_vigente
 from app.models.models import (
     Pronostico, Partido, Grupo, GrupoParticipante,
     User, FuentePronostico,
@@ -23,6 +24,8 @@ def calcular_puntos(
     fase: str,
     grupo: Grupo,
     es_prediccion_unica: bool = False,
+    clasificado_local_pred: Optional[bool] = None,   # ← nuevo
+    clasificado_local_real: Optional[bool] = None,   # ← nuevo
 ) -> dict:
     puntos = 0
     desglose = {}
@@ -31,6 +34,15 @@ def calcular_puntos(
     if pred_local == real_local and pred_visitante == real_visitante:
         puntos += grupo.pts_marcador_exacto
         desglose["marcador_exacto"] = grupo.pts_marcador_exacto
+        # Goles también suman cuando el marcador es exacto
+        if grupo.pts_gol > 0:
+            bonus_goles = 0  
+            if pred_local == real_local:         bonus_goles += grupo.pts_gol
+            if pred_visitante == real_visitante: bonus_goles += grupo.pts_gol
+            if bonus_goles > 0:
+                puntos += bonus_goles
+                desglose["goles_acertados"] = bonus_goles
+
     else:
         # Ganador / Empate
         local_gana_pred  = pred_local > pred_visitante
@@ -60,6 +72,7 @@ def calcular_puntos(
         desglose["prediccion_unica"] = grupo.pts_prediccion_unica
 
     # Bonos por fase eliminatoria
+    # En empate, el bono solo aplica si acertó el clasificado
     bonos_por_fase = {
         "dieciseisavos": grupo.bono_dieciseisavos,
         "octavos":       grupo.bono_octavos,
@@ -67,12 +80,21 @@ def calcular_puntos(
         "semifinales":   grupo.bono_semifinales,
         "final":         grupo.bono_final,
     }
-    bono_fase = bonos_por_fase.get(fase, 0)
-    if bono_fase > 0 and puntos > 0:   # solo aplica bono si acertó algo
-        puntos += bono_fase
-        desglose[f"bono_{fase}"] = bono_fase
 
-    return {"total": puntos, "desglose": desglose}
+    bono_fase = bonos_por_fase.get(fase, 0)
+
+    if bono_fase > 0 and puntos > 0:
+        # Si fue empate, solo dar bono si acertó el clasificado
+        es_empate_real = real_local == real_visitante
+        if es_empate_real:
+            if clasificado_local_pred is not None and clasificado_local_real is not None:
+                if clasificado_local_pred == clasificado_local_real:
+                    puntos += bono_fase
+                    desglose[f"bono_{fase}"] = bono_fase
+        else:
+            # No fue empate — bono aplica normalmente
+            puntos += bono_fase
+            desglose[f"bono_{fase}"] = bono_fase
 
 
 def verificar_prediccion_unica(
@@ -117,12 +139,12 @@ def registrar_pronostico(
     limite_free = fecha_partido - timedelta(minutes=15)
     limite_pro  = fecha_partido - timedelta(minutes=5)
 
-    if not current_user.es_pro and ahora_utc >= limite_free:
+    if not tiene_pro_vigente(current_user) and ahora_utc >= limite_free:
         raise HTTPException(
             status_code=403,
             detail="Debes registrar tu pronóstico al menos 15 minutos antes del partido.",
         )
-    if current_user.es_pro and ahora_utc >= limite_pro:
+    if tiene_pro_vigente(current_user) and ahora_utc >= limite_pro:
         raise HTTPException(
             status_code=403,
             detail="El tiempo límite PRO (5 minutos antes) ha expirado.",
@@ -144,7 +166,7 @@ def registrar_pronostico(
     ).first()
 
     if existente:
-        if current_user.es_pro:
+        if tiene_pro_vigente(current_user):
             existente.goles_local     = data.goles_local
             existente.goles_visitante = data.goles_visitante
             existente.registrado_en   = ahora_utc
@@ -164,7 +186,8 @@ def registrar_pronostico(
         grupo_id=         data.grupo_id,
         goles_local=      data.goles_local,
         goles_visitante=  data.goles_visitante,
-        fuente=           FuentePronostico.usuario,
+        clasificado_local= data.clasificado_local,
+        fuente=           FuentePronostico.manual,
     )
     db.add(nuevo)
     db.commit()
@@ -218,10 +241,12 @@ def mis_pronosticos_global(
 def calcular_puntos_partido(
     partido_id: uuid.UUID,
     db: Session = Depends(get_db),
+    _: None = Depends(require_internal_api_key),
 ):
     """
     Calcula y asigna puntos a todos los pronósticos de un partido finalizado.
-    No requiere autenticación — es un endpoint interno llamado por el score_updater.
+    Uso interno: requiere header ``X-Internal-Key`` igual a ``INTERNAL_API_KEY``
+    (obligatorio si ``DEBUG`` es False). ``score_updater`` ya puede enviarlo.
     """
     partido = db.query(Partido).filter(Partido.id == partido_id).first()
     if not partido:
@@ -252,6 +277,9 @@ def calcular_puntos_partido(
             p.goles_local, p.goles_visitante,
             partido.goles_local, partido.goles_visitante,
             partido.fase, grupo, es_unica,
+            clasificado_local_pred=p.clasificado_local,
+            clasificado_local_real=partido.clasificado_local,
+        
         )
         p.puntos_obtenidos = res["total"]
 
@@ -265,5 +293,15 @@ def calcular_puntos_partido(
 
         procesados += 1
 
+    # Recalcular posiciones por grupo
+    grupos_afectados = set(p.grupo_id for p in pronosticos)
+    for gid in grupos_afectados:
+        participantes_grupo = db.query(GrupoParticipante).filter(
+            GrupoParticipante.grupo_id == gid
+        ).order_by(GrupoParticipante.total_puntos.desc()).all()
+        
+        for i, part in enumerate(participantes_grupo, start=1):
+            part.posicion = i
+            
     db.commit()
     return {"status": "success", "procesados": procesados}

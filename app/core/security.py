@@ -1,7 +1,8 @@
-from datetime import datetime, timedelta
+import secrets
+from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.core.config import settings
@@ -48,11 +49,44 @@ def decode_token(token: str) -> dict:
 
 # ─── Dependency: usuario actual ─────────────────────────────────────────
 
+def tiene_pro_vigente(user) -> bool:
+    """True si el usuario tiene plan PRO activo (incluye ventana hasta pro_expira_en)."""
+    if not getattr(user, "es_pro", False):
+        return False
+    exp = getattr(user, "pro_expira_en", None)
+    if exp is None:
+        return True
+    now = datetime.now(timezone.utc)
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp > now
+
+
+def require_internal_api_key(
+    x_internal_key: str | None = Header(default=None, alias="X-Internal-Key"),
+) -> None:
+    """Protege endpoints llamados solo por jobs internos (p. ej. score_updater)."""
+    expected = (settings.INTERNAL_API_KEY or "").strip()
+    if not expected:
+        if settings.DEBUG:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="INTERNAL_API_KEY no está configurada; no se aceptan jobs internos.",
+        )
+    provided = (x_internal_key or "").strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No autorizado",
+        )
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ):
-    from app.models.models import  User
+    from app.models.models import User
     payload = decode_token(credentials.credentials)
     user_id = payload.get("sub")
     if not user_id:
@@ -64,10 +98,10 @@ def get_current_user(
 
 
 def get_current_pro_user(current_user=Depends(get_current_user)):
-    """Solo permite el acceso a usuarios PRO."""
-    if not current_user.es_pro:
+    """Solo permite el acceso a usuarios PRO con suscripción vigente."""
+    if not tiene_pro_vigente(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Esta función requiere WinPredict PRO",
+            detail="Esta función requiere WinPredict PRO activo",
         )
     return current_user

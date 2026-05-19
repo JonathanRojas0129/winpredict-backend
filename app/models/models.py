@@ -121,6 +121,7 @@ class Partido(Base):
     bandera_visitante = Column(String(10), nullable=True)
     fecha_hora       = Column(DateTime, nullable=False)
     fase             = Column(String(50), nullable=False)
+    grupo            = Column(String(20), nullable=True)
 
     # Resultados reales
     goles_local      = Column(Integer, nullable=True)

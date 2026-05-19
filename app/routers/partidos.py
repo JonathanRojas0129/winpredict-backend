@@ -33,8 +33,14 @@ def listar_partidos(
     q = db.query(Partido)
     
     if estado:
-        # Validamos que el estado enviado sea uno de los permitidos en el Enum
-        q = q.filter(Partido.estado == estado)
+        try:
+            estado_enum = EstadoPartido(estado)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Estado inválido. Use: {', '.join(e.value for e in EstadoPartido)}",
+            )
+        q = q.filter(Partido.estado == estado_enum)
         
     return q.order_by(Partido.fecha_hora).all()
 

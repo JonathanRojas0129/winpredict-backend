@@ -9,5 +9,5 @@ class ReglasBase(BaseModel):
 
 class GrupoCreate(BaseModel):
     nombre: str
-    max_participantes: int = 50
+    max_participantes: int = 500
     reglas: ReglasBase = ReglasBase()

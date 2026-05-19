@@ -3,6 +3,7 @@ score_updater.py — Fuente de la Verdad · WinPredict
 =====================================================
 Extrae resultados de múltiples fuentes web, valida por consenso,
 actualiza Supabase y dispara el cálculo de puntos vía FastAPI.
+También actualiza los equipos clasificados en fases eliminatorias.
 
 Uso:
     python score_updater.py              # ejecutar ahora
@@ -14,12 +15,11 @@ Cron (cada 10 min):
 
 import os
 import sys
-import json
 import logging
 import argparse
 import unicodedata
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import httpx
@@ -30,14 +30,14 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 # ─── Config ──────────────────────────────────────────────────────────────────
 load_dotenv(".env.score")
 
-SUPABASE_URL      = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY      = os.getenv("SUPABASE_SERVICE_KEY", "")   # service_role key (bypasa RLS)
-FASTAPI_BASE_URL  = os.getenv("BACKEND_URL", "http://localhost:8000")
-FASTAPI_API_KEY   = os.getenv("INTERNAL_API_KEY", "")       # opcional — header X-Internal-Key
-LOG_LEVEL         = os.getenv("LOG_LEVEL", "INFO")
-HEADLESS          = os.getenv("HEADLESS", "true").lower() == "true"
+SUPABASE_URL     = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY     = os.getenv("SUPABASE_SERVICE_KEY", "")
+FASTAPI_BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+FASTAPI_API_KEY  = os.getenv("INTERNAL_API_KEY", "")
+LOG_LEVEL        = os.getenv("LOG_LEVEL", "INFO")
+HEADLESS         = os.getenv("HEADLESS", "true").lower() == "true"
 
-# ─── Logging ──────────────────────────────────────────────────────────────────
+# ─── Logging ─────────────────────────────────────────────────────────────────
 log_fmt = "%(asctime)s [%(levelname)s] %(message)s"
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -46,7 +46,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("score_updater")
 
-# ─── Tipos ────────────────────────────────────────────────────────────────────
+# ─── Tipos ───────────────────────────────────────────────────────────────────
 @dataclass
 class Marcador:
     goles_local:     int
@@ -56,44 +56,34 @@ class Marcador:
 
 @dataclass
 class Partido:
-    id:               str
-    equipo_local:     str
-    equipo_visitante: str
-    fecha_hora:       str
-    bandera_local:    Optional[str] = None
+    id:                str
+    equipo_local:      str
+    equipo_visitante:  str
+    fecha_hora:        str
+    bandera_local:     Optional[str] = None
     bandera_visitante: Optional[str] = None
 
 
-# ─── Normalización de nombres de equipos ──────────────────────────────────────
-# Agrega aquí cualquier variante que aparezca en las fuentes web.
-# Clave = variante externa → Valor = nombre exacto en tu tabla `partidos`
-
+# ─── Normalización de nombres ────────────────────────────────────────────────
 ALIAS: dict[str, str] = {
-    # Corea del Sur
     "korea republic":       "Corea del Sur",
     "south korea":          "Corea del Sur",
     "corea del sur":        "Corea del Sur",
     "korea":                "Corea del Sur",
     "rep. of korea":        "Corea del Sur",
-    # Estados Unidos
     "united states":        "Estados Unidos",
     "usa":                  "Estados Unidos",
     "u.s.a.":               "Estados Unidos",
     "us":                   "Estados Unidos",
-    # Irán
     "ir iran":              "Irán",
     "iran":                 "Irán",
-    # Costa de Marfil
     "ivory coast":          "Costa de Marfil",
     "côte d'ivoire":        "Costa de Marfil",
     "cote d'ivoire":        "Costa de Marfil",
-    # República Checa
     "czech republic":       "República Checa",
     "czechia":              "República Checa",
-    # Macedonia del Norte
     "north macedonia":      "Macedonia del Norte",
     "macedonia":            "Macedonia del Norte",
-    # Resto — agrega según lo que encuentres en logs de discrepancias
     "england":              "Inglaterra",
     "scotland":             "Escocia",
     "wales":                "Gales",
@@ -108,27 +98,23 @@ ALIAS: dict[str, str] = {
 }
 
 def normalizar(nombre: str) -> str:
-    """Quita tildes, pasa a minúsculas y resuelve alias."""
     txt = unicodedata.normalize("NFKD", nombre)
     txt = "".join(c for c in txt if not unicodedata.combining(c))
     txt = txt.lower().strip()
-    return ALIAS.get(txt, nombre.strip())   # si no hay alias, devuelve el original limpio
+    return ALIAS.get(txt, nombre.strip())
 
 def equipos_coinciden(a: str, b: str) -> bool:
     return normalizar(a) == normalizar(b)
 
 
-# ─── Scraper base ─────────────────────────────────────────────────────────────
+# ─── Scrapers ────────────────────────────────────────────────────────────────
 class BaseScraper:
     nombre: str = "base"
 
-    def obtener_marcador(
-        self, page, equipo_local: str, equipo_visitante: str
-    ) -> Optional[Marcador]:
+    def obtener_marcador(self, page, equipo_local: str, equipo_visitante: str) -> Optional[Marcador]:
         raise NotImplementedError
 
 
-# ─── Scraper 1: Google Search Scoreboard ─────────────────────────────────────
 class GoogleScraper(BaseScraper):
     nombre = "Google"
 
@@ -140,10 +126,8 @@ class GoogleScraper(BaseScraper):
             page.goto(url, wait_until="domcontentloaded", timeout=20_000)
             page.wait_for_timeout(2000)
 
-            # Google muestra el marcador en un panel destacado
-            # Selector del scorecard de Google (puede variar; usamos múltiples fallbacks)
             selectors_score = [
-                "[data-ved] .imso_mh__lf-st",   # formato clásico
+                "[data-ved] .imso_mh__lf-st",
                 ".imspo_mt__lt-t",
                 ".imspo_mt__t-sc .imspo_mt__sc",
                 "div[class*='score']",
@@ -179,7 +163,6 @@ class GoogleScraper(BaseScraper):
                 log.debug(f"[Google] No se encontró scorecard para {equipo_local} vs {equipo_visitante}")
                 return None
 
-            # Parsear "2 - 1" o "2:1"
             marcador = self._parsear_score(score_text)
             if marcador is None:
                 return None
@@ -207,7 +190,6 @@ class GoogleScraper(BaseScraper):
         return None
 
 
-# ─── Scraper 2: Flashscore ────────────────────────────────────────────────────
 class FlashscoreScraper(BaseScraper):
     nombre = "Flashscore"
 
@@ -219,28 +201,23 @@ class FlashscoreScraper(BaseScraper):
             page.goto(url, wait_until="domcontentloaded", timeout=25_000)
             page.wait_for_timeout(3000)
 
-            # Cerrar cookie banner si aparece
             try:
                 page.locator("#onetrust-accept-btn-handler").click(timeout=3000)
                 page.wait_for_timeout(500)
             except Exception:
                 pass
 
-            # Buscar el partido en los resultados de búsqueda
-            # Flashscore muestra filas con clase "event__match"
             filas = page.locator(".event__match, .sportName__match").all()
 
-            for fila in filas[:10]:   # revisar los primeros 10 resultados
+            for fila in filas[:10]:
                 try:
-                    texto_fila = fila.inner_text(timeout=2000).lower()
-
+                    texto_fila     = fila.inner_text(timeout=2000).lower()
                     local_norm     = normalizar(equipo_local)
                     visitante_norm = normalizar(equipo_visitante)
 
                     if local_norm not in texto_fila and visitante_norm not in texto_fila:
                         continue
 
-                    # Extraer equipos y score de la fila
                     home_el  = fila.locator(".event__homeParticipant, .event__participant--home").first
                     away_el  = fila.locator(".event__awayParticipant, .event__participant--away").first
                     score_el = fila.locator(".event__score, .event__scores").first
@@ -249,17 +226,14 @@ class FlashscoreScraper(BaseScraper):
                     away_name  = away_el.inner_text(timeout=1500).strip()
                     score_text = score_el.inner_text(timeout=1500).strip()
 
-                    # Validar que los equipos coincidan (con normalización)
                     if not (equipos_coinciden(home_name, equipo_local) and
                             equipos_coinciden(away_name, equipo_visitante)):
                         continue
 
-                    # Parsear score "2 - 1"
                     marcador = self._parsear_score(score_text)
                     if marcador is None:
                         continue
 
-                    # Detectar estado — Flashscore pone "FT" en un badge
                     status_el   = fila.locator(".event__stage--block, .event__stage").first
                     status_text = ""
                     try:
@@ -297,37 +271,20 @@ class FlashscoreScraper(BaseScraper):
         return None
 
 
-# ─── Consenso ─────────────────────────────────────────────────────────────────
-def validar_consenso(
-    marcadores: list[Optional[Marcador]],
-    partido: Partido,
-) -> Optional[Marcador]:
-    """
-    Devuelve un Marcador si y solo si:
-    - Al menos 2 fuentes tienen resultado
-    - Todas las fuentes disponibles coinciden en el marcador
-    - Todas las fuentes dicen que el partido está finalizado
-    """
+# ─── Consenso ────────────────────────────────────────────────────────────────
+def validar_consenso(marcadores: list[Optional[Marcador]], partido: Partido) -> Optional[Marcador]:
     validos = [m for m in marcadores if m is not None]
 
     if len(validos) < 2:
-        fuentes_con_dato = [m.fuente for m in validos] if validos else ["ninguna"]
-        log.warning(
-            f"[CONSENSO FALLIDO] {partido.equipo_local} vs {partido.equipo_visitante} — "
-            f"solo {len(validos)} fuente(s) con dato: {fuentes_con_dato}"
-        )
+        fuentes = [m.fuente for m in validos] if validos else ["ninguna"]
+        log.warning(f"[CONSENSO FALLIDO] {partido.equipo_local} vs {partido.equipo_visitante} — solo {len(validos)} fuente(s): {fuentes}")
         return None
 
-    # Verificar que todos están finalizados
     if not all(m.finalizado for m in validos):
         no_fin = [m.fuente for m in validos if not m.finalizado]
-        log.info(
-            f"[EN CURSO] {partido.equipo_local} vs {partido.equipo_visitante} — "
-            f"fuentes sin 'finalizado': {no_fin}"
-        )
+        log.info(f"[EN CURSO] {partido.equipo_local} vs {partido.equipo_visitante} — fuentes sin 'finalizado': {no_fin}")
         return None
 
-    # Verificar que todos coinciden en el marcador
     referencia = validos[0]
     for m in validos[1:]:
         if m.goles_local != referencia.goles_local or m.goles_visitante != referencia.goles_visitante:
@@ -346,14 +303,9 @@ def validar_consenso(
     return referencia
 
 
-# ─── Supabase ─────────────────────────────────────────────────────────────────
+# ─── Supabase helpers ────────────────────────────────────────────────────────
 def obtener_partidos_pendientes(sb: Client) -> list[Partido]:
-    """
-    Lee partidos con estado='pendiente' cuya fecha_hora ya pasó (en UTC).
-    Incluye un margen de 105 min (90 min partido + 15 min extra).
-    """
     ahora_utc = datetime.now(timezone.utc).isoformat()
-
     res = (
         sb.table("partidos")
         .select("id, equipo_local, equipo_visitante, fecha_hora, bandera_local, bandera_visitante")
@@ -361,18 +313,16 @@ def obtener_partidos_pendientes(sb: Client) -> list[Partido]:
         .lt("fecha_hora", ahora_utc)
         .execute()
     )
-
     partidos = []
     for row in (res.data or []):
         partidos.append(Partido(
-            id=               row["id"],
-            equipo_local=     row["equipo_local"],
-            equipo_visitante= row["equipo_visitante"],
-            fecha_hora=       row["fecha_hora"],
-            bandera_local=    row.get("bandera_local"),
+            id=                row["id"],
+            equipo_local=      row["equipo_local"],
+            equipo_visitante=  row["equipo_visitante"],
+            fecha_hora=        row["fecha_hora"],
+            bandera_local=     row.get("bandera_local"),
             bandera_visitante= row.get("bandera_visitante"),
         ))
-
     log.info(f"Partidos pendientes de verificar: {len(partidos)}")
     return partidos
 
@@ -388,12 +338,10 @@ def actualizar_partido(sb: Client, partido: Partido, marcador: Marcador, dry_run
 
     try:
         sb.table("partidos").update({
-            "goles_local":     marcador.goles_local,
+            "goles_local":    marcador.goles_local,
             "goles_visitante": marcador.goles_visitante,
-            "estado":          "finalizado",
-            "actualizado_en":  datetime.now(timezone.utc).isoformat(),
+            "estado":         "finalizado",
         }).eq("id", partido.id).execute()
-
         log.info(f"✅ BD actualizada: {partido.equipo_local} {marcador.goles_local}-{marcador.goles_visitante} {partido.equipo_visitante}")
         return True
     except Exception as e:
@@ -401,7 +349,7 @@ def actualizar_partido(sb: Client, partido: Partido, marcador: Marcador, dry_run
         return False
 
 
-# ─── Webhook FastAPI ───────────────────────────────────────────────────────────
+# ─── Webhook FastAPI ──────────────────────────────────────────────────────────
 def disparar_calculo_puntos(partido_id: str, dry_run: bool) -> bool:
     if dry_run:
         log.info(f"[DRY-RUN] POST {FASTAPI_BASE_URL}/api/pronosticos/calcular-puntos/{partido_id}")
@@ -425,6 +373,77 @@ def disparar_calculo_puntos(partido_id: str, dry_run: bool) -> bool:
         return False
 
 
+# ─── Clasificados por grupo ───────────────────────────────────────────────────
+def calcular_tabla_grupo(sb: Client, grupo: str) -> list[dict]:
+    """Calcula tabla de posiciones de un grupo basada en resultados finalizados."""
+    res = sb.table("partidos").select(
+        "equipo_local, equipo_visitante, goles_local, goles_visitante"
+    ).eq("fase", "grupos").eq("grupo", grupo).eq("estado", "finalizado").execute()
+
+    stats: dict[str, dict] = {}
+
+    for p in (res.data or []):
+        for equipo, gf, gc in [
+            (p["equipo_local"],     p["goles_local"],     p["goles_visitante"]),
+            (p["equipo_visitante"], p["goles_visitante"], p["goles_local"]),
+        ]:
+            if equipo not in stats:
+                stats[equipo] = {"equipo": equipo, "pts": 0, "gf": 0, "gc": 0, "dg": 0, "pj": 0}
+            stats[equipo]["gf"]  += gf
+            stats[equipo]["gc"]  += gc
+            stats[equipo]["dg"]  += gf - gc
+            stats[equipo]["pj"]  += 1
+            if gf > gc:
+                stats[equipo]["pts"] += 3
+            elif gf == gc:
+                stats[equipo]["pts"] += 1
+
+    return sorted(stats.values(), key=lambda x: (x["pts"], x["dg"], x["gf"]), reverse=True)
+
+
+def actualizar_clasificados(sb: Client, dry_run: bool):
+    """Actualiza placeholders en fases eliminatorias con equipos reales clasificados."""
+    grupos = ["Grupo A", "Grupo B", "Grupo C", "Grupo D", "Grupo E", "Grupo F",
+              "Grupo G", "Grupo H", "Grupo I", "Grupo J", "Grupo K", "Grupo L"]
+
+    for grupo in grupos:
+        res = sb.table("partidos").select("id").eq("fase", "grupos") \
+                .eq("grupo", grupo).eq("estado", "finalizado").execute()
+        finalizados = len(res.data or [])
+
+        if finalizados < 6:
+            log.debug(f"[{grupo}] {finalizados}/6 partidos finalizados — saltando")
+            continue
+
+        tabla = calcular_tabla_grupo(sb, grupo)
+        if len(tabla) < 2:
+            continue
+
+        letra   = grupo.split(" ")[1]
+        ganador = tabla[0]["equipo"]
+        segundo = tabla[1]["equipo"]
+        tercero = tabla[2]["equipo"] if len(tabla) > 2 else None
+
+        log.info(f"[{grupo}] 🏆 1°: {ganador} | 2°: {segundo}" + (f" | 3°: {tercero}" if tercero else ""))
+
+        reemplazos = {
+            f"Ganador Grupo {letra}": ganador,
+            f"2° Grupo {letra}":      segundo,
+        }
+        if tercero:
+            reemplazos[f"3° Grupo {letra}"] = tercero
+
+        for placeholder, equipo_real in reemplazos.items():
+            for campo in ["equipo_local", "equipo_visitante"]:
+                res_p = sb.table("partidos").select("id").eq(campo, placeholder).execute()
+                for p in (res_p.data or []):
+                    if dry_run:
+                        log.info(f"[DRY-RUN] UPDATE partidos SET {campo}='{equipo_real}' WHERE id='{p['id']}'")
+                    else:
+                        sb.table("partidos").update({campo: equipo_real}).eq("id", p["id"]).execute()
+                        log.info(f"✅ {placeholder} → {equipo_real} ({campo}) en partido {p['id'][:8]}...")
+
+
 # ─── Loop principal ───────────────────────────────────────────────────────────
 def run(dry_run: bool = False):
     log.info("=" * 60)
@@ -432,93 +451,80 @@ def run(dry_run: bool = False):
     log.info(f"   Hora UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
     log.info("=" * 60)
 
-    # Validar config
     if not SUPABASE_URL or not SUPABASE_KEY:
-        log.error("SUPABASE_URL / SUPABASE_SERVICE_KEY no configuradas en .env")
+        log.error("SUPABASE_URL / SUPABASE_SERVICE_KEY no configuradas en .env.score")
         sys.exit(1)
 
-    # Conectar Supabase
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Obtener partidos a verificar
+    # ── 1. Actualizar resultados de partidos ──────────────────────────────────
     partidos = obtener_partidos_pendientes(sb)
-    if not partidos:
-        log.info("Sin partidos pendientes. Fin.")
-        return
-
-    # Inicializar scrapers
-    scrapers = [GoogleScraper(), FlashscoreScraper()]
 
     stats = {"verificados": 0, "actualizados": 0, "discrepancias": 0, "sin_dato": 0}
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            headless=HEADLESS,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
-        context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            locale="es-ES",
-            viewport={"width": 1280, "height": 800},
-        )
+    if partidos:
+        scrapers = [GoogleScraper(), FlashscoreScraper()]
 
-        for partido in partidos:
-            log.info(f"\n── Verificando: {partido.equipo_local} vs {partido.equipo_visitante} ──")
-            stats["verificados"] += 1
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=HEADLESS,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                locale="es-ES",
+                viewport={"width": 1280, "height": 800},
+            )
 
-            marcadores: list[Optional[Marcador]] = []
+            for partido in partidos:
+                log.info(f"\n── Verificando: {partido.equipo_local} vs {partido.equipo_visitante} ──")
+                stats["verificados"] += 1
 
-            for scraper in scrapers:
-                page = context.new_page()
-                try:
-                    marcador = scraper.obtener_marcador(
-                        page,
-                        partido.equipo_local,
-                        partido.equipo_visitante,
-                    )
-                    marcadores.append(marcador)
-                    if marcador:
-                        log.debug(
-                            f"   [{scraper.nombre}] "
-                            f"{marcador.goles_local}-{marcador.goles_visitante} "
-                            f"{'✓ Final' if marcador.finalizado else '⏳ En curso'}"
-                        )
-                    else:
-                        log.debug(f"   [{scraper.nombre}] Sin dato")
-                except Exception as e:
-                    log.warning(f"   [{scraper.nombre}] Excepción: {e}")
-                    marcadores.append(None)
-                finally:
-                    page.close()
+                marcadores: list[Optional[Marcador]] = []
 
-            # Validar consenso
-            resultado = validar_consenso(marcadores, partido)
+                for scraper in scrapers:
+                    page = context.new_page()
+                    try:
+                        marcador = scraper.obtener_marcador(page, partido.equipo_local, partido.equipo_visitante)
+                        marcadores.append(marcador)
+                        if marcador:
+                            log.debug(f"   [{scraper.nombre}] {marcador.goles_local}-{marcador.goles_visitante} {'✓ Final' if marcador.finalizado else '⏳ En curso'}")
+                        else:
+                            log.debug(f"   [{scraper.nombre}] Sin dato")
+                    except Exception as e:
+                        log.warning(f"   [{scraper.nombre}] Excepción: {e}")
+                        marcadores.append(None)
+                    finally:
+                        page.close()
 
-            if resultado is None:
-                validos = [m for m in marcadores if m is not None]
-                if len(validos) < 2:
-                    stats["sin_dato"] += 1
-                else:
-                    stats["discrepancias"] += 1
-                continue
+                resultado = validar_consenso(marcadores, partido)
 
-            # Actualizar BD
-            ok_bd = actualizar_partido(sb, partido, resultado, dry_run)
-            if not ok_bd:
-                continue
+                if resultado is None:
+                    validos = [m for m in marcadores if m is not None]
+                    stats["sin_dato" if len(validos) < 2 else "discrepancias"] += 1
+                    continue
 
-            # Disparar cálculo de puntos
-            disparar_calculo_puntos(partido.id, dry_run)
-            stats["actualizados"] += 1
+                ok_bd = actualizar_partido(sb, partido, resultado, dry_run)
+                if not ok_bd:
+                    continue
 
-        context.close()
-        browser.close()
+                disparar_calculo_puntos(partido.id, dry_run)
+                stats["actualizados"] += 1
 
-    # Resumen final
+            context.close()
+            browser.close()
+    else:
+        log.info("Sin partidos pendientes de actualizar.")
+
+    # ── 2. Actualizar clasificados en fases eliminatorias ─────────────────────
+    log.info("\n── Actualizando clasificados en fases eliminatorias ──")
+    actualizar_clasificados(sb, dry_run)
+
+    # ── Resumen final ─────────────────────────────────────────────────────────
     log.info("\n" + "=" * 60)
     log.info("📊 RESUMEN DE EJECUCIÓN")
     log.info(f"   Partidos verificados : {stats['verificados']}")

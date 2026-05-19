@@ -25,10 +25,10 @@ async def generic_exception_handler(request: Request, exc: Exception):
     """Captura cualquier error no controlado y devuelve un JSON estructurado."""
     logger.error(f"Error no controlado en {request.url}: {str(exc)}")
     traceback.print_exc()
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Error interno del servidor", "detail": str(exc)}
-    )
+    body: dict = {"error": "Error interno del servidor"}
+    if settings.DEBUG:
+        body["detail"] = str(exc)
+    return JSONResponse(status_code=500, content=body)
 
 # ─── Middleware de CORS ─────────────────────────────────────────────────
 # Permite la conexión segura entre el Frontend (React/Next.js) y esta API

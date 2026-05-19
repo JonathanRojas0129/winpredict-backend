@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 días
 
+    # Jobs internos (score_updater → calcular-puntos). En producción debe estar definida.
+    INTERNAL_API_KEY: str = ""
+
     # MercadoPago
     MP_ACCESS_TOKEN: str = ""
     MP_WEBHOOK_SECRET: str = ""   # se configura en el panel de MP al registrar el webhook
