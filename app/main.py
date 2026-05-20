@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 import logging
 import traceback
 
-from app.core.config import settings
+from app.core.config import settings, cors_origins
 from app.routers import auth, grupos, partidos, pronosticos, ranking, pro, sugerencias
 
 # Configuración de Logging para depuración en desarrollo
@@ -34,7 +34,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 # Permite la conexión segura entre el Frontend (React/Next.js) y esta API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],
+    allow_origins=cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -145,6 +145,7 @@ class Pronostico(Base):
 
     goles_local      = Column(Integer, nullable=False)
     goles_visitante  = Column(Integer, nullable=False)
+    clasificado_local = Column(Boolean, nullable=True)
 
     puntos_obtenidos    = Column(Integer, nullable=True)
     fuente              = Column(Enum(FuentePronostico), default=FuentePronostico.manual)
