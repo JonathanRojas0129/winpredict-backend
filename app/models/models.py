@@ -131,6 +131,7 @@ class GrupoParticipante(Base):
     grupo_id = Column(UUID(as_uuid=True), ForeignKey("grupos.id"), nullable=False)
     user_id  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     rol      = Column(Enum(RolGrupo), default=RolGrupo.player)
+    estado_participante = Column(String(20), default="pendiente", nullable=False)
     total_puntos = Column(Integer, default=0)
     posicion     = Column(Integer, nullable=True)
     unido_en = Column(DateTime, default=datetime.utcnow)

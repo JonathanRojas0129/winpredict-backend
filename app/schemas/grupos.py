@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import List, Optional
 
 class ReglasIn(BaseModel):
     """Reglas de puntuación configurables por el admin. Rango: 0-10 pts."""
@@ -48,3 +49,32 @@ class GrupoOut(BaseModel):
 
 class UnirseIn(BaseModel):
     codigo_invitacion: str
+
+
+class UnirseOut(BaseModel):
+    message: str
+    grupo_nombre: str
+    grupo_id: str
+
+
+class SolicitudOut(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    nombre: str
+    email: str
+    solicitado_en: datetime
+
+
+class SolicitudesListOut(BaseModel):
+    solicitudes: List[SolicitudOut]
+    total: int
+
+
+class AprobarSolicitudOut(BaseModel):
+    message: str
+    user_email: str
+
+
+class RechazarSolicitudOut(BaseModel):
+    message: str
+    user_email: str
