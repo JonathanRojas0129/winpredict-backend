@@ -52,11 +52,39 @@ class User(Base):
     proveedor_auth = Column(Enum(ProveedorAuth), default=ProveedorAuth.local)
     creado_en      = Column(DateTime, default=datetime.utcnow)
 
+    # Seguridad: bloqueo tras intentos fallidos de login
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
+
     # Relaciones
     grupos_propios  = relationship("Grupo", back_populates="creador")
     participaciones = relationship("GrupoParticipante", back_populates="usuario")
     pronosticos     = relationship("Pronostico", back_populates="usuario")
     pagos           = relationship("Pago", back_populates="usuario")
+
+
+class AuthLog(Base):
+    """Auditoría de eventos de autenticación."""
+
+    __tablename__ = "auth_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    accion = Column(String(50), nullable=False, index=True)
+    ip = Column(String(64), nullable=False)
+    user_agent = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class UsedToken(Base):
+    """JWT de recuperación ya consumidos (uso único, TTL ~15 min)."""
+
+    __tablename__ = "used_tokens"
+
+    jti = Column(String(36), primary_key=True)
+    used_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
 
 
 class Grupo(Base):

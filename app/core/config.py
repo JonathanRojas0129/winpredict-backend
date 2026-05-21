@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # Base de datos
     DATABASE_URL: str
 
+    # Supabase Auth (recuperación de contraseña)
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+    SUPABASE_ANON_KEY: str = ""
+
     # JWT
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
@@ -32,6 +37,9 @@ class Settings(BaseSettings):
 
     # Jobs internos (score_updater → calcular-puntos). En producción debe estar definida.
     INTERNAL_API_KEY: str = ""
+
+    # Administración (emails con permiso para /api/admin/*), separados por coma
+    ADMIN_EMAILS: str = ""
 
     # MercadoPago
     MP_ACCESS_TOKEN: str = ""

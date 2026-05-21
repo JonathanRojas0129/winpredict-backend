@@ -105,3 +105,20 @@ def get_current_pro_user(current_user=Depends(get_current_user)):
             detail="Esta función requiere WinPredict PRO activo",
         )
     return current_user
+
+
+def _admin_email_set() -> set[str]:
+    raw = (settings.ADMIN_EMAILS or "").strip()
+    if not raw:
+        return set()
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def require_admin(current_user=Depends(get_current_user)):
+    """Solo usuarios cuyo email está en ADMIN_EMAILS (.env)."""
+    if current_user.email.lower() not in _admin_email_set():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos de administrador.",
+        )
+    return current_user
