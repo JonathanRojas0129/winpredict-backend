@@ -10,17 +10,9 @@ from app.core.database import get_db
 from app.core.security import require_admin
 from app.models.models import User
 from app.schemas.auth import AdminUnlockIn, AdminUnlockOut
+from app.core.ip_utils import get_client_ip
 
 router = APIRouter()
-
-
-def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "desconocida"
 
 
 @router.post("/desbloquear-cuenta", response_model=AdminUnlockOut)
@@ -49,7 +41,7 @@ def desbloquear_cuenta(
         accion=ACCION_CUENTA_DESBLOQUEADA,
         email=email,
         user_id=user.id,
-        ip=_client_ip(request),
+        ip=get_client_ip(request),
         user_agent=request.headers.get("User-Agent"),
     )
 

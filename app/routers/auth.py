@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from app.core.ip_utils import get_client_ip
 
 from app.core.auth_audit import (
     ACCION_CUENTA_DESBLOQUEADA,
@@ -62,16 +63,6 @@ router = APIRouter()
 LOCKOUT_MAX_ATTEMPTS = 5
 LOCKOUT_DURATION_MINUTES = 30
 
-
-def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "desconocida"
-
-
 def _client_user_agent(request: Request) -> str | None:
     return request.headers.get("User-Agent")
 
@@ -87,7 +78,7 @@ def _raise_account_locked(user: User, db: Session, request: Request) -> None:
         accion=ACCION_LOGIN_BLOQUEADO,
         email=user.email,
         user_id=user.id,
-        ip=_client_ip(request),
+        ip=get_client_ip(request),
         user_agent=_client_user_agent(request),
     )
     raise HTTPException(
@@ -150,7 +141,7 @@ def login(
 ):
     """Iniciar sesión con email y contraseña."""
     email = data.email.lower()
-    ip = _client_ip(request)
+    ip = get_client_ip(request)
     ua = _client_user_agent(request)
     user = db.query(User).filter(User.email == email).first()
 
@@ -342,7 +333,7 @@ def reset_password(
         accion=ACCION_PASSWORD_RESET,
         email=email,
         user_id=user.id,
-        ip=_client_ip(request),
+        ip=get_client_ip(request),
         user_agent=_client_user_agent(request),
     )
 
