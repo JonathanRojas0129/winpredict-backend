@@ -1,11 +1,10 @@
 ﻿# Entorno virtual
 venv/
 
-# Variables de entorno
+# Secretos — nunca subir .env reales (solo plantillas *.example)
 .env
-.env.score
-.env.local
-.env*.local
+.env.*
+!.env.example
 
 # Python cache
 __pycache__/
