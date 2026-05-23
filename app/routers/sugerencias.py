@@ -30,17 +30,17 @@ STATS_EQUIPOS: dict[str, dict] = {
     "México":           {"ranking": 15, "goles_favor": 1.75, "goles_contra": 0.90, "proj": 5.2},
     "Corea del Sur":    {"ranking": 22, "goles_favor": 1.60, "goles_contra": 0.95, "proj": 3.6},
     "República Checa":  {"ranking": 37, "goles_favor": 1.50, "goles_contra": 1.00, "proj": 4.2},
-    "Sudáfrica":        {"ranking": 68, "goles_favor": 1.10, "goles_contra": 1.20, "proj": 1.8},
+    "Sudáfrica":        {"ranking": 68, "goles_favor": 1.10, "goles_contra": 1.30, "proj": 1.8},
     # GRUPO B
     "Canadá":           {"ranking": 30, "goles_favor": 1.80, "goles_contra": 1.10, "proj": 4.0},
     "Catar":            {"ranking": 57, "goles_favor": 1.30, "goles_contra": 1.40, "proj": 2.0},
     "Suiza":            {"ranking": 19, "goles_favor": 1.70, "goles_contra": 0.85, "proj": 5.2},
-    "Bosnia y H.":      {"ranking": 60, "goles_favor": 1.40, "goles_contra": 1.20, "proj": 3.2},
+    "Bosnia y H.":      {"ranking": 60, "goles_favor": 1.40, "goles_contra": 1.30, "proj": 3.2},
     # GRUPO C
     "Brasil":           {"ranking":  6, "goles_favor": 1.95, "goles_contra": 0.80, "proj": 7.4},
     "Marruecos":        {"ranking":  8, "goles_favor": 1.65, "goles_contra": 0.70, "proj": 5.0},
     "Escocia":          {"ranking": 39, "goles_favor": 1.55, "goles_contra": 1.15, "proj": 3.2},
-    "Haití":            {"ranking":100, "goles_favor": 0.90, "goles_contra": 1.60, "proj": 1.0},
+    "Haití":            {"ranking":100, "goles_favor": 0.90, "goles_contra": 1.90, "proj": 1.0},
     # GRUPO D
     "Estados Unidos":   {"ranking": 16, "goles_favor": 1.70, "goles_contra": 1.00, "proj": 4.5},
     "Paraguay":         {"ranking": 55, "goles_favor": 0.78, "goles_contra": 0.56, "proj": 2.8},
@@ -50,7 +50,7 @@ STATS_EQUIPOS: dict[str, dict] = {
     "Alemania":         {"ranking": 10, "goles_favor": 2.10, "goles_contra": 0.90, "proj": 7.9},
     "Costa de Marfil":  {"ranking": 45, "goles_favor": 1.50, "goles_contra": 1.00, "proj": 3.5},
     "Ecuador":          {"ranking": 42, "goles_favor": 0.78, "goles_contra": 0.28, "proj": 3.3},
-    "Curazao":          {"ranking":115, "goles_favor": 0.80, "goles_contra": 1.50, "proj": 1.0},
+    "Curazao":          {"ranking":115, "goles_favor": 0.80, "goles_contra": 2.50, "proj": 1.0},
     # GRUPO F
     "Países Bajos":     {"ranking":  7, "goles_favor": 1.95, "goles_contra": 0.60, "proj": 5.3},
     "Japón":            {"ranking": 18, "goles_favor": 1.75, "goles_contra": 0.80, "proj": 3.9},
@@ -75,17 +75,17 @@ STATS_EQUIPOS: dict[str, dict] = {
     "Argentina":        {"ranking":  3, "goles_favor": 1.72, "goles_contra": 0.61, "proj": 6.5},
     "Argelia":          {"ranking": 34, "goles_favor": 1.55, "goles_contra": 0.90, "proj": 3.5},
     "Austria":          {"ranking": 27, "goles_favor": 1.65, "goles_contra": 0.95, "proj": 4.0},
-    "Jordania":         {"ranking": 79, "goles_favor": 1.10, "goles_contra": 1.40, "proj": 1.8},
+    "Jordania":         {"ranking": 79, "goles_favor": 1.10, "goles_contra": 1.60, "proj": 1.8},
     # GRUPO K
     "Portugal":         {"ranking":  5, "goles_favor": 1.90, "goles_contra": 0.75, "proj": 6.2},
-    "RD del Congo":     {"ranking": 50, "goles_favor": 1.30, "goles_contra": 1.10, "proj": 2.5},
-    "Colombia":         {"ranking": 13, "goles_favor": 1.56, "goles_contra": 0.83, "proj": 5.0},
-    "Uzbekistán":       {"ranking": 71, "goles_favor": 1.20, "goles_contra": 1.20, "proj": 2.2},
+    "RD del Congo":     {"ranking": 50, "goles_favor": 1.30, "goles_contra": 1.50, "proj": 2.5},
+    "Colombia":         {"ranking": 13, "goles_favor": 1.76, "goles_contra": 0.80, "proj": 5.0},
+    "Uzbekistán":       {"ranking": 71, "goles_favor": 1.20, "goles_contra": 1.45, "proj": 2.2},
     # GRUPO L
     "Inglaterra":       {"ranking":  4, "goles_favor": 2.25, "goles_contra": 0.00, "proj": 6.1},
     "Croacia":          {"ranking": 11, "goles_favor": 2.17, "goles_contra": 0.33, "proj": 4.6},
     "Ghana":            {"ranking": 58, "goles_favor": 1.40, "goles_contra": 1.20, "proj": 2.8},
-    "Panamá":           {"ranking": 90, "goles_favor": 0.90, "goles_contra": 1.50, "proj": 1.5},
+    "Panamá":           {"ranking": 90, "goles_favor": 0.90, "goles_contra": 1.90, "proj": 1.5},
 }
 
 # Factor de ventaja local en la fase de grupos del Mundial
@@ -110,36 +110,34 @@ def poisson(lam: float, k: int) -> float:
 
 
 def calcular_lambdas(equipo_local: str, equipo_visitante: str, fase: str) -> tuple[float, float]:
-    """
-    Calcula los lambdas (goles esperados) para cada equipo
-    usando la fortaleza de ataque propia vs defensa del rival.
-    """
     stats_l = STATS_EQUIPOS.get(equipo_local)
     stats_v = STATS_EQUIPOS.get(equipo_visitante)
 
-    # Fallback si el equipo no está en la tabla (fases eliminatorias con nombres genéricos)
     if not stats_l or not stats_v:
         factor = FACTOR_FASE.get(fase, 0.90)
         return round(1.3 * factor, 3), round(1.0 * factor, 3)
 
     factor = FACTOR_FASE.get(fase, 0.90)
+    promedio_global = 1.7  # ← subir de 1.5
 
-    # Lambda = promedio goles favor del atacante × promedio goles recibidos del defensor
-    # Normalizado por el promedio general de eliminatorias (2.81 goles/partido = 1.405 por equipo)
-    promedio_global = 1.5  # ← subir de 1.405
+    # ── Factor de ranking ──────────────────────────────────────────
+    diff = stats_v["ranking"] - stats_l["ranking"]  # positivo = local mejor rankeado
+    factor_ranking_l = max(0.75, min(1.50, 1.0 + (diff * 0.008)))
+    factor_ranking_v = max(0.75, min(1.50, 1.0 - (diff * 0.008)))
+    # ───────────────────────────────────────────────────────────────
 
     lambda_local = (stats_l["goles_favor"] / promedio_global) * \
                 (stats_v["goles_contra"] / promedio_global) * \
-                promedio_global * FACTOR_LOCAL * factor * 1.3  # ← × 1.3
+                promedio_global * FACTOR_LOCAL * factor * 1.3 * factor_ranking_l  # ← × factor_ranking
 
     lambda_visit = (stats_v["goles_favor"] / promedio_global) * \
                 (stats_l["goles_contra"] / promedio_global) * \
-                promedio_global * factor * 1.3  # ← × 1.3
+                promedio_global * factor * 1.3 * factor_ranking_v  # ← × factor_ranking
 
-    # Clamp ajustado
-    return max(0.5, min(4.0, lambda_local)), max(0.3, min(3.5, lambda_visit))
+    return max(0.5, min(4.5, lambda_local)), max(0.3, min(3.8, lambda_visit))  # ← clamp más alto
 
 def top3_resultados(lambda_l: float, lambda_v: float, max_goles: int = 6) -> list[dict]:
+    # ─── Top 3 resultados ────────────────────────────────────────────
     """
     Retorna el marcador más probable de cada categoría:
     1. Victoria local más probable
@@ -190,6 +188,36 @@ def calcular_1x2(lambda_l: float, lambda_v: float, max_goles: int = 10) -> dict:
         "empate":   round((p_empate / total) * 100, 1),
         "visitante": round((p_visita / total) * 100, 1),
     }
+
+# ─── Endpoint todas las sugerencias─────────────────────────────────────────────────────────────
+@router.get("/")
+def obtener_todas_las_sugerencias(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_pro_user),
+):
+    sugerencias = db.query(SugerenciaIA).join(Partido).all()
+    resultado = []
+    for s in sugerencias:
+        lambda_l, lambda_v = calcular_lambdas(
+            s.partido.equipo_local,
+            s.partido.equipo_visitante,
+            s.partido.fase,
+        )
+        top3     = top3_resultados(lambda_l, lambda_v)
+        prob_1x2 = calcular_1x2(lambda_l, lambda_v)
+        resultado.append({
+            "partido_id":      str(s.partido_id),
+            "goles_local":     s.goles_local,
+            "goles_visitante": s.goles_visitante,
+            "confianza":       s.confianza,
+            "top3":            top3,
+            "probabilidades":  {
+                "Local":     prob_1x2["local"],
+                "Empate":    prob_1x2["empate"],
+                "Visitante": prob_1x2["visitante"],
+            },
+        })
+    return resultado
 
 
 # ─── Endpoint ─────────────────────────────────────────────────────────────
@@ -261,6 +289,7 @@ def obtener_sugerencia_ia(
             "visitante": round(lambda_v, 2),
         },
     }
+
 
 # ─── POST /precalcular — Genera sugerencias para todos los partidos de grupos ──
 
