@@ -29,14 +29,21 @@ def calcular_puntos(
 ) -> dict:
     puntos = 0
     desglose = {}
-
+        
     # Marcador exacto
     if pred_local == real_local and pred_visitante == real_visitante:
         puntos += grupo.pts_marcador_exacto
         desglose["marcador_exacto"] = grupo.pts_marcador_exacto
+        # Marcador exacto también implica ganador acertado
+        if real_local != real_visitante and grupo.pts_ganador > 0:
+            puntos += grupo.pts_ganador
+            desglose["ganador_acertado"] = grupo.pts_ganador
+        elif real_local == real_visitante and grupo.pts_empate > 0:
+            puntos += grupo.pts_empate
+            desglose["empate_acertado"] = grupo.pts_empate
         # Goles también suman cuando el marcador es exacto
         if grupo.pts_gol > 0:
-            bonus_goles = 0  
+            bonus_goles = 0
             if pred_local == real_local:         bonus_goles += grupo.pts_gol
             if pred_visitante == real_visitante: bonus_goles += grupo.pts_gol
             if bonus_goles > 0:
@@ -95,6 +102,8 @@ def calcular_puntos(
             # No fue empate — bono aplica normalmente
             puntos += bono_fase
             desglose[f"bono_{fase}"] = bono_fase
+            
+    return {"total": puntos, "desglose": desglose}
 
 
 def verificar_prediccion_unica(
