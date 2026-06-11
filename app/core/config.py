@@ -65,6 +65,7 @@ def cors_origins() -> list[str]:
         "http://localhost:3000",
         "https://winpredict-frontend.vercel.app",
         "https://winpredictfornt.onrender.com",
+        "https://win-predict.vercel.app",
     ]
     if s.CORS_EXTRA_ORIGINS:
         candidates.extend(s.CORS_EXTRA_ORIGINS.split(","))
