@@ -273,6 +273,17 @@ def mis_grupos(
             "mis_puntos": p.total_puntos or 0,
             "mi_posicion": p.posicion,
             "estado": grupo.estado or "activo",
+            # Reglas de puntuación
+            "pts_marcador_exacto": grupo.pts_marcador_exacto,
+            "pts_ganador": grupo.pts_ganador,
+            "pts_empate": grupo.pts_empate,
+            "pts_gol": grupo.pts_gol,
+            "pts_prediccion_unica": grupo.pts_prediccion_unica,
+            "bono_dieciseisavos": grupo.bono_dieciseisavos,
+            "bono_octavos": grupo.bono_octavos,
+            "bono_cuartos": grupo.bono_cuartos,
+            "bono_semifinales": grupo.bono_semifinales,
+            "bono_final": grupo.bono_final,
         })
 
     return resultado

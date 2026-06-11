@@ -349,6 +349,38 @@ def actualizar_partido(sb: Client, partido: Partido, marcador: Marcador, dry_run
         return False
 
 
+# ─── Recalcular partidos ya finalizados sin puntos ───────────────────────────
+def obtener_partidos_finalizados(sb: Client) -> list[str]:
+    """Partidos con marcador y estado finalizado (para backfill de puntos)."""
+    res = (
+        sb.table("partidos")
+        .select("id")
+        .eq("estado", "finalizado")
+        .not_.is_("goles_local", "null")
+        .not_.is_("goles_visitante", "null")
+        .execute()
+    )
+    return [row["id"] for row in (res.data or [])]
+
+
+def reprocesar_puntos_pendientes(sb: Client, dry_run: bool) -> int:
+    """
+    Dispara cálculo de puntos en FastAPI para cada partido finalizado.
+    Cubre partidos marcados a mano o cuando falló el webhook (p. ej. API key incorrecta).
+    """
+    ids = obtener_partidos_finalizados(sb)
+    if not ids:
+        log.info("Sin partidos finalizados para recalcular puntos.")
+        return 0
+
+    ok = 0
+    for partido_id in ids:
+        if disparar_calculo_puntos(partido_id, dry_run):
+            ok += 1
+    log.info(f"Puntos recalculados/verificados en {ok}/{len(ids)} partido(s) finalizado(s).")
+    return ok
+
+
 # ─── Webhook FastAPI ──────────────────────────────────────────────────────────
 def disparar_calculo_puntos(partido_id: str, dry_run: bool) -> bool:
     if dry_run:
@@ -520,7 +552,11 @@ def run(dry_run: bool = False):
     else:
         log.info("Sin partidos pendientes de actualizar.")
 
-    # ── 2. Actualizar clasificados en fases eliminatorias ─────────────────────
+    # ── 2. Backfill: puntos en partidos ya finalizados ───────────────────────
+    log.info("\n── Recalculando puntos de partidos finalizados ──")
+    reprocesar_puntos_pendientes(sb, dry_run)
+
+    # ── 3. Actualizar clasificados en fases eliminatorias ─────────────────────
     log.info("\n── Actualizando clasificados en fases eliminatorias ──")
     actualizar_clasificados(sb, dry_run)
 

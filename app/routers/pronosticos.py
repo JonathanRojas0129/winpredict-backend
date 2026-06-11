@@ -124,6 +124,68 @@ def verificar_prediccion_unica(
     return otros == 0
 
 
+def aplicar_puntos_a_partido(db: Session, partido: Partido) -> int:
+    """
+    Calcula puntos de todos los pronósticos de un partido con resultado.
+    Idempotente: si se vuelve a ejecutar, resta el puntaje anterior antes de sumar el nuevo.
+    """
+    if partido.goles_local is None or partido.goles_visitante is None:
+        raise HTTPException(status_code=400, detail="Partido sin resultado oficial aún")
+
+    pronosticos = db.query(Pronostico).filter(
+        Pronostico.partido_id == partido.id
+    ).all()
+
+    procesados = 0
+    for p in pronosticos:
+        grupo = db.query(Grupo).filter(Grupo.id == p.grupo_id).first()
+        if not grupo:
+            continue
+
+        puntos_anteriores = p.puntos_obtenidos or 0
+
+        es_unica = (
+            p.goles_local == partido.goles_local
+            and p.goles_visitante == partido.goles_visitante
+            and verificar_prediccion_unica(
+                db, partido.id, p.grupo_id,
+                p.goles_local, p.goles_visitante, p.user_id,
+            )
+        )
+
+        res = calcular_puntos(
+            p.goles_local, p.goles_visitante,
+            partido.goles_local, partido.goles_visitante,
+            partido.fase, grupo, es_unica,
+            clasificado_local_pred=p.clasificado_local,
+            clasificado_local_real=partido.clasificado_local,
+        )
+        puntos_nuevos = res["total"]
+        p.puntos_obtenidos = puntos_nuevos
+
+        participante = db.query(GrupoParticipante).filter(
+            GrupoParticipante.grupo_id == p.grupo_id,
+            GrupoParticipante.user_id == p.user_id,
+        ).first()
+        if participante:
+            total = participante.total_puntos or 0
+            participante.total_puntos = total - puntos_anteriores + puntos_nuevos
+
+        procesados += 1
+
+    grupos_afectados = {p.grupo_id for p in pronosticos}
+    for gid in grupos_afectados:
+        participantes_grupo = db.query(GrupoParticipante).filter(
+            GrupoParticipante.grupo_id == gid
+        ).order_by(GrupoParticipante.total_puntos.desc()).all()
+
+        for i, part in enumerate(participantes_grupo, start=1):
+            part.posicion = i
+
+    db.commit()
+    return procesados
+
+
 # ─── POST / — Registrar o actualizar pronóstico ───────────────────────────
 
 @router.post("/", response_model=PronosticoOut, status_code=201)
@@ -260,57 +322,6 @@ def calcular_puntos_partido(
     partido = db.query(Partido).filter(Partido.id == partido_id).first()
     if not partido:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
-    if partido.goles_local is None or partido.goles_visitante is None:
-        raise HTTPException(status_code=400, detail="Partido sin resultado oficial aún")
 
-    pronosticos = db.query(Pronostico).filter(
-        Pronostico.partido_id == partido_id
-    ).all()
-
-    procesados = 0
-    for p in pronosticos:
-        grupo = db.query(Grupo).filter(Grupo.id == p.grupo_id).first()
-        if not grupo:
-            continue
-
-        es_unica = (
-            p.goles_local     == partido.goles_local and
-            p.goles_visitante == partido.goles_visitante and
-            verificar_prediccion_unica(
-                db, partido_id, p.grupo_id,
-                p.goles_local, p.goles_visitante, p.user_id,
-            )
-        )
-
-        res = calcular_puntos(
-            p.goles_local, p.goles_visitante,
-            partido.goles_local, partido.goles_visitante,
-            partido.fase, grupo, es_unica,
-            clasificado_local_pred=p.clasificado_local,
-            clasificado_local_real=partido.clasificado_local,
-        
-        )
-        p.puntos_obtenidos = res["total"]
-
-        # Sumar al total del participante en el grupo
-        participante = db.query(GrupoParticipante).filter(
-            GrupoParticipante.grupo_id == p.grupo_id,
-            GrupoParticipante.user_id  == p.user_id,
-        ).first()
-        if participante:
-            participante.total_puntos = (participante.total_puntos or 0) + res["total"]
-
-        procesados += 1
-
-    # Recalcular posiciones por grupo
-    grupos_afectados = set(p.grupo_id for p in pronosticos)
-    for gid in grupos_afectados:
-        participantes_grupo = db.query(GrupoParticipante).filter(
-            GrupoParticipante.grupo_id == gid
-        ).order_by(GrupoParticipante.total_puntos.desc()).all()
-        
-        for i, part in enumerate(participantes_grupo, start=1):
-            part.posicion = i
-            
-    db.commit()
+    procesados = aplicar_puntos_a_partido(db, partido)
     return {"status": "success", "procesados": procesados}
