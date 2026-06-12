@@ -43,7 +43,7 @@ def calcular_sugerencia(db: Session, equipo_local: str, equipo_visitante: str, f
     Incluye rendimiento real del torneo si hay partidos finalizados.
     """
     try:
-        lambda_l, lambda_v = calcular_lambdas(equipo_local, equipo_visitante, fase, db=db)
+        lambda_l, lambda_v = calcular_lambdas(equipo_local, equipo_visitante, fase)
         top3 = top3_resultados(lambda_l, lambda_v)
         return top3[0]["goles_local"], top3[0]["goles_visitante"]
     except Exception as e:
