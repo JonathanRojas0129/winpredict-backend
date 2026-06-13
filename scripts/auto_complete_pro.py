@@ -63,9 +63,13 @@ def autocompletar_pronosticos(db: Session) -> int:
     ).all()
 
     # ── 2. Partidos ya cerrados o en vivo sin pronóstico ─────────────
+   
+    inicio_del_dia = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+
     partidos_cerrados = db.query(Partido).filter(
         Partido.estado.in_([EstadoPartido.pendiente, EstadoPartido.vivo]),
         Partido.cierre_pronosticos <= ahora,
+        Partido.cierre_pronosticos >= inicio_del_dia,
     ).all()
 
     # Unir evitando duplicados
