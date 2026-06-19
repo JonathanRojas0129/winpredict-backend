@@ -162,6 +162,7 @@ def aplicar_puntos_a_partido(db: Session, partido: Partido) -> int:
         )
         puntos_nuevos = res["total"]
         p.puntos_obtenidos = puntos_nuevos
+        p.desglose = res["desglose"]
 
         participante = db.query(GrupoParticipante).filter(
             GrupoParticipante.grupo_id == p.grupo_id,
@@ -303,6 +304,101 @@ def mis_pronosticos_global(
     )
 
     return {"total": total, "exactos": exactos, "correctos": correctos}
+
+# ─── GET /resultados-grupo/{grupo_id} ────────────────────────────────────
+
+@router.get("/resultados-grupo/{grupo_id}")
+def resultados_grupo(
+    grupo_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Devuelve los pronósticos de todos los jugadores del grupo
+    para los partidos finalizados, agrupados por jugador.
+    """
+    # Verificar que el usuario pertenece al grupo
+    participante = db.query(GrupoParticipante).filter(
+        GrupoParticipante.grupo_id == grupo_id,
+        GrupoParticipante.user_id  == current_user.id,
+        GrupoParticipante.estado_participante == "aprobado",
+    ).first()
+    if not participante:
+        raise HTTPException(status_code=403, detail="No eres parte de este grupo")
+
+    # Obtener partidos finalizados
+    partidos_finalizados = db.query(Partido).filter(
+        Partido.estado == "finalizado",
+    ).order_by(Partido.fecha_hora.desc()).all()
+
+    if not partidos_finalizados:
+        return []
+
+    partidos_ids = [p.id for p in partidos_finalizados]
+    partidos_map = {p.id: p for p in partidos_finalizados}
+
+    # Obtener todos los participantes aprobados del grupo
+    participantes = db.query(GrupoParticipante).join(
+        User, User.id == GrupoParticipante.user_id
+    ).filter(
+        GrupoParticipante.grupo_id == grupo_id,
+        GrupoParticipante.estado_participante == "aprobado",
+    ).order_by(GrupoParticipante.total_puntos.desc()).all()
+
+    # Obtener todos los pronósticos del grupo para partidos finalizados
+    pronosticos = db.query(Pronostico).filter(
+        Pronostico.grupo_id   == grupo_id,
+        Pronostico.partido_id.in_(partidos_ids),
+    ).all()
+
+    # Mapear pronósticos por usuario y partido
+    pronosticos_map: dict[uuid.UUID, dict[uuid.UUID, Pronostico]] = {}
+    for p in pronosticos:
+        if p.user_id not in pronosticos_map:
+            pronosticos_map[p.user_id] = {}
+        pronosticos_map[p.user_id][p.partido_id] = p
+
+    # Construir respuesta
+    resultado = []
+    for part in participantes:
+        user = db.query(User).filter(User.id == part.user_id).first()
+        if not user:
+            continue
+
+        mis_pronosticos = pronosticos_map.get(part.user_id, {})
+        partidos_jugados = []
+
+        for partido in partidos_finalizados:
+            pron = mis_pronosticos.get(partido.id)
+            partidos_jugados.append({
+                "partido_id":        str(partido.id),
+                "equipo_local":      partido.equipo_local,
+                "equipo_visitante":  partido.equipo_visitante,
+                "goles_local_real":  partido.goles_local,
+                "goles_visitante_real": partido.goles_visitante,
+                "goles_local_pred":  pron.goles_local if pron else None,
+                "goles_visitante_pred": pron.goles_visitante if pron else None,
+                "puntos_obtenidos":  pron.puntos_obtenidos if pron else None,
+                "fue_autocompletado": pron.fue_autocompletado if pron else None,
+                "fase":              partido.fase,
+                "fecha_hora":        partido.fecha_hora.isoformat() if partido.fecha_hora else None,
+                "desglose":          pron.desglose if pron else {},
+            })
+
+        resultado.append({
+            "user_id":          str(part.user_id),
+            "nombre":           user.nombre,
+            "es_pro":           user.es_pro,
+            "es_yo":            part.user_id == current_user.id,
+            "total_puntos":     part.total_puntos or 0,
+            "posicion":         part.posicion,
+            "partidos_jugados": len([p for p in partidos_jugados if p["goles_local_pred"] is not None]),
+            "partidos":         partidos_jugados,
+        })
+
+    return resultado
+
+
 
 
 # ─── POST /calcular-puntos/{partido_id} ──────────────────────────────────

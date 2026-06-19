@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Enum, Float, Text
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Enum, Float, Text, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -175,8 +175,9 @@ class Pronostico(Base):
     goles_local      = Column(Integer, nullable=False)
     goles_visitante  = Column(Integer, nullable=False)
     clasificado_local = Column(Boolean, nullable=True)
-
+    desglose          = Column(JSON, default=dict)
     puntos_obtenidos    = Column(Integer, nullable=True)
+    
     fuente              = Column(Enum(FuentePronostico), default=FuentePronostico.manual)
     fue_autocompletado  = Column(Boolean, default=False)
 
