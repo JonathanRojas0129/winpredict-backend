@@ -453,7 +453,7 @@ def precalcular_sugerencias(
     db: Session = Depends(get_db),
     _: None = Depends(require_internal_api_key),
 ):
-    partidos  = db.query(Partido).filter(Partido.fase == "grupos").all()
+    partidos  = db.query(Partido).filter(Partido.fase.in_(["grupos", "dieciseisavos"])).all()
     cache_rendimiento: dict = {}
     generados = actualizados = 0
 
