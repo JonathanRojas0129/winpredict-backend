@@ -51,6 +51,7 @@ def leer_resultados_sheets() -> list[dict]:
             finalizado  = row.get("finalizado", "").strip().upper()
             goles_local = row.get("goles_local", "").strip()
             goles_vis   = row.get("goles_visitante", "").strip()
+            clasificado_local = row.get("clasificado_local", "").strip().lower()
 
             if not partido_id or finalizado != "SI":
                 continue
@@ -70,8 +71,7 @@ def leer_resultados_sheets() -> list[dict]:
 
 
 # ─── Actualizar partido en Supabase ──────────────────────────────────────────
-def actualizar_partido(sb: Client, partido_id: str, goles_local: int, goles_visitante: int, dry_run: bool) -> bool:
-    # Verificar si ya está finalizado
+def actualizar_partido(sb: Client, partido_id: str, goles_local: int, goles_visitante: int, clasificado_local, dry_run: bool) -> bool:
     res = sb.table("partidos").select("estado, equipo_local, equipo_visitante").eq("id", partido_id).single().execute()
     if not res.data:
         log.warning(f"Partido {partido_id} no encontrado en BD")
@@ -82,18 +82,20 @@ def actualizar_partido(sb: Client, partido_id: str, goles_local: int, goles_visi
         return False
 
     if dry_run:
-        log.info(f"[DRY-RUN] {res.data['equipo_local']} {goles_local}-{goles_visitante} {res.data['equipo_visitante']}")
+        log.info(f"[DRY-RUN] {res.data['equipo_local']} {goles_local}-{goles_visitante} {res.data['equipo_visitante']} | clasificado_local: {clasificado_local}")
         return True
 
-    sb.table("partidos").update({
+    update_data = {
         "goles_local":     goles_local,
         "goles_visitante": goles_visitante,
         "estado":          "finalizado",
-    }).eq("id", partido_id).execute()
+    }
+    if clasificado_local is not None:
+        update_data["clasificado_local"] = clasificado_local
 
-    log.info(f"✅ {res.data['equipo_local']} {goles_local}-{goles_visitante} {res.data['equipo_visitante']}")
+    sb.table("partidos").update(update_data).eq("id", partido_id).execute()
+    log.info(f"✅ {res.data['equipo_local']} {goles_local}-{goles_visitante} {res.data['equipo_visitante']} | clasificado_local: {clasificado_local}")
     return True
-
 
 # ─── Disparar cálculo de puntos ───────────────────────────────────────────────
 def disparar_calculo_puntos(partido_id: str, dry_run: bool) -> bool:
