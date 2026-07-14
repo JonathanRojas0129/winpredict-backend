@@ -84,7 +84,7 @@ def calcular_puntos(
         "dieciseisavos": grupo.bono_dieciseisavos,
         "octavos":       grupo.bono_octavos,
         "cuartos":       grupo.bono_cuartos,
-        "semifinales":   grupo.bono_semifinales,
+        "semifinal":     grupo.bono_semifinales,
         "final":         grupo.bono_final,
     }
 
