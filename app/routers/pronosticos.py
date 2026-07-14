@@ -99,10 +99,15 @@ def calcular_puntos(
                     puntos += bono_fase
                     desglose[f"bono_{fase}"] = bono_fase
         else:
-            # No fue empate — bono aplica normalmente
-            puntos += bono_fase
-            desglose[f"bono_{fase}"] = bono_fase
-            
+            # No fue empate — bono solo si acertó el ganador
+            acerto_ganador = (
+                (real_local > real_visitante and pred_local > pred_visitante) or
+                (real_visitante > real_local and pred_visitante > pred_local)
+            )
+            if acerto_ganador:
+                puntos += bono_fase
+                desglose[f"bono_{fase}"] = bono_fase
+                
     return {"total": puntos, "desglose": desglose}
 
 
