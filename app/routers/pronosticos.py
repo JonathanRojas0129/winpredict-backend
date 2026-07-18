@@ -90,19 +90,24 @@ def calcular_puntos(
 
     bono_fase = bonos_por_fase.get(fase, 0)
 
-    if bono_fase > 0 and puntos > 0:
-        # Si fue empate, solo dar bono si acertó el clasificado
+    if bono_fase > 0:
         es_empate_real = real_local == real_visitante
         if es_empate_real:
+            # Partido terminó en empate — bono si acertó el clasificado por penales
             if clasificado_local_pred is not None and clasificado_local_real is not None:
                 if clasificado_local_pred == clasificado_local_real:
                     puntos += bono_fase
                     desglose[f"bono_{fase}"] = bono_fase
         else:
-            # No fue empate — bono solo si acertó el ganador
+            # Partido terminó con ganador — bono si acertó quién ganó
+            gano_local_real = real_local > real_visitante
+            gano_local_pred = pred_local > pred_visitante
+            gano_visita_real = real_visitante > real_local
+            gano_visita_pred = pred_visitante > pred_local
+            
             acerto_ganador = (
-                (real_local > real_visitante and pred_local > pred_visitante) or
-                (real_visitante > real_local and pred_visitante > pred_local)
+                (gano_local_real and gano_local_pred) or
+                (gano_visita_real and gano_visita_pred)
             )
             if acerto_ganador:
                 puntos += bono_fase
